@@ -59,6 +59,9 @@ $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell
     Run(Format('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{}"', psPath), , "Hide")
 }
 
+; Mirror of _xml_escape in ffp_daemon.py — keep the two in sync. Neutralizes XML
+; metacharacters AND apostrophe/newline so toast text can't break out of the
+; single-quoted PowerShell here-string in ShowToastViaInlinePowerShell_Impl.
 XmlEscape_Impl(s) {
     out := StrReplace(s, "&", "&amp;")
     out := StrReplace(out, "<", "&lt;")

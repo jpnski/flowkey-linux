@@ -84,6 +84,16 @@ def test_err_envelope_shape(daemon_module):
     assert result == {"ok": False, "result": None, "error": "broken", "elapsed_ms": 12.35}
 
 
+def test_xml_escape_neutralizes_injection(daemon_module):
+    # Toast text must not be able to break out of the single-quoted PowerShell
+    # here-string in _show_toast_async: apostrophe + newline are the escape risks.
+    out = daemon_module._xml_escape("a'@\n<b>&\"x")
+    assert "'" not in out
+    assert "\n" not in out
+    assert "<" not in out and ">" not in out
+    assert "&apos;" in out and "&lt;" in out and "&quot;" in out
+
+
 def test_healthz_reports_actions(daemon_server):
     daemon_module, base_url = daemon_server
 

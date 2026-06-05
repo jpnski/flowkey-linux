@@ -73,6 +73,9 @@ def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedP
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 52650
+# API_VERSION doubles as the required POST header value (X-FFP-API). The AHK
+# client (lib/daemon_client.ahk) sends the matching literal. CONTRACT: bump both
+# together — a daemon/client version mismatch is rejected with 403 by design.
 API_VERSION = "1"
 _MAX_BODY_BYTES = 8 * 1024 * 1024  # reject oversized POST bodies (local DoS guard)
 
@@ -412,6 +415,10 @@ def _act_bench_history(_args: dict) -> dict:
 
 
 def _xml_escape(s: str) -> str:
+    # Neutralizes XML metacharacters AND apostrophe/newline so the value can't
+    # break out of the single-quoted PowerShell here-string in _show_toast_async.
+    # Mirror of XmlEscape_Impl in ui/notifications.ahk — keep the two in sync;
+    # test_xml_escape_neutralizes_injection guards this behavior.
     return (str(s or "")
             .replace("&", "&amp;")
             .replace("<", "&lt;")
@@ -439,7 +446,9 @@ def _show_toast_async(title: str, message: str) -> None:
         "$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';"
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($toast)"
     )
-    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    # CREATE_NO_WINDOW alone: hide the console without a window flash. (Previously
+    # also OR'd DETACHED_PROCESS, which is contradictory — no-window vs no-console.)
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         subprocess.Popen(
             ["powershell.exe", "-NoProfile", "-NonInteractive",
@@ -632,8 +641,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, _err(f"unknown action: {action_name}", 0.0))
             return
 
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > _MAX_BODY_BYTES:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send_json(400, _err("invalid Content-Length header", 0.0))
+            return
+        if length < 0 or length > _MAX_BODY_BYTES:
             self._send_json(413, _err(f"body too large ({length} bytes)", 0.0))
             return
         raw_body = self.rfile.read(length) if length > 0 else b""
