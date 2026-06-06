@@ -192,6 +192,9 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
   - Added `packages = { find = { where = ["scripts"], include = ["tui*"] } }` for tui package
   - Registered `flowkey-tui = "tui.app:main"` console script
 
+> **venv** : Set up venv at `venv/` to isolate project dependencies from system packages. **Note for installer / CI:** The `install.sh` in Phase 5 should consider whether to create a venv or install system-wide. For development, always use the venv. For production distribution, system packages may be preferred (see `install.sh` design).
+
+
 ### Phase 4 follow-up — bug fixes
 
 - [x] **33a.** `MessageBubble` content invisible at runtime (2026-06-06):
@@ -212,7 +215,7 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ## Phase 5 — Installer & Distribution
 
-- [ ] **34.** Create `install.sh`:
+- [x] **34.** Create `install.sh`:
   - Detect Linux distribution (apt vs rpm)
   - Install system dependencies: `python3-pyperclip`, `python3-pynput` (X11), `python3-evdev` (Wayland), `python3-pystray` (X11), `wl-clipboard` (Wayland), `xdotool` (X11), `ydotool` (Wayland paste-back), `libnotify-bin` (notify-send), `python3-textual` (TUI)
   - Add user to `input` group for evdev access
@@ -222,7 +225,7 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
   - Create `~/.local/share/applications/flowkey-tui.desktop` for TUI app menu entry
   - Convert `assets/flowkey.ico` to `.png` if ImageMagick available
 
-- [ ] **35.** Create `.github/workflows/ci.yml` — Linux CI:
+- [x] **35.** Create `.github/workflows/ci.yml` — Linux CI:
   - `ubuntu-latest` runner
   - Install system deps: `python3-dev`, `libx11-dev`, `libevdev-dev`
   - `pip install .[dev]`
@@ -248,15 +251,3 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ## Development Notes
 
-### Virtual Environment (venv)
-
-A Python venv was set up at `venv/` on 2026-06-06 to isolate project dependencies from system packages. This is the recommended way to run the project during development.
-
-```bash
-source venv/bin/activate
-pip install -e ".[dev,x11,wayland,tray,readability]"  # all optional deps
-```
-
-The venv was created because Phase 4 introduced `textual>=8.0` as a new core dependency, and several optional deps (`pynput`, `evdev`, `pystray`, `Pillow`) need to be consistently versioned.
-
-**Note for installer / CI:** The `install.sh` in Phase 5 should consider whether to create a venv or install system-wide. For development, always use the venv. For production distribution, system packages may be preferred (see `install.sh` design).

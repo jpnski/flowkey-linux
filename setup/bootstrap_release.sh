@@ -9,15 +9,15 @@ PY_SCRIPT="${RELEASE_DIR}/scripts/grammar_fix.py"
 DEFAULT_MODEL="gemma4-it:e4b"
 
 log() {
-  printf '[ffp-bootstrap] %s\n' "$*"
+  printf '[flowkey-bootstrap] %s\n' "$*"
 }
 
 warn() {
-  printf '[ffp-bootstrap][warn] %s\n' "$*" >&2
+  printf '[flowkey-bootstrap][warn] %s\n' "$*" >&2
 }
 
 fail() {
-  printf '[ffp-bootstrap][error] %s\n' "$*" >&2
+  printf '[flowkey-bootstrap][error] %s\n' "$*" >&2
   exit 1
 }
 
@@ -123,13 +123,13 @@ main() {
     fail "pip install failed for ${RELEASE_DIR}"
   fi
   ensure_config
-  if ! command -v ffp-install >/dev/null 2>&1; then
-    warn "ffp-install is not on PATH; continuing with direct script verification."
+  if ! command -v flowkey-install >/dev/null 2>&1; then
+    warn "flowkey-install is not on PATH; continuing with direct script verification."
     ensure_model
     verify_runtime
   else
-    ffp-install --phase full
-    log "After reboot, run: ffp-install --phase postreboot"
+    flowkey-install --phase full
+    log "After reboot, run: flowkey-install --phase postreboot"
   fi
 
   log "Setup complete."

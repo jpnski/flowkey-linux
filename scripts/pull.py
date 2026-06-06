@@ -99,6 +99,6 @@ def start_pull(model: str, *,
             log.exception("pull failed for %s", model)
             _update(state="error", error=str(exc), finished_at=time.time())
 
-    _thread = threading.Thread(target=worker, name="ffp-pull", daemon=True)
+    _thread = threading.Thread(target=worker, name="flowkey-pull", daemon=True)
     _thread.start()
     return {"ok": True, "state": "running", "model": model}

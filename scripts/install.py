@@ -10,8 +10,8 @@ pip can't:
 - Model pull (`flm pull gemma4-it:e4b`)
 
 Invocation:
-  ffp-install                   # full flow
-  ffp-install --model <name>    # pull a different default model
+   flowkey-install                   # full flow
+  flowkey-install --model <name>    # pull a different default model
 """
 
 from __future__ import annotations
@@ -101,9 +101,9 @@ def _ensure_config() -> None:
 # ---------- XDG autostart ----------------------------------------------------
 
 def _ensure_autostart() -> None:
-    """Create ~/.config/autostart/ffp-listener.desktop if it doesn't exist."""
+    """Create ~/.config/autostart/flowkey-listener.desktop if it doesn't exist."""
     autostart_dir = Path(os.path.expanduser("~/.config/autostart"))
-    autostart_file = autostart_dir / "ffp-listener.desktop"
+    autostart_file = autostart_dir / "flowkey-listener.desktop"
     if autostart_file.exists():
         _step("Autostart entry already exists.")
         return
@@ -112,7 +112,7 @@ def _ensure_autostart() -> None:
         "Type=Application\n"
         "Name=Flowkey Listener\n"
         "Comment=Flowkey global hotkey listener\n"
-        "Exec=ffp-listener\n"
+        "Exec=flowkey-listener\n"
         "Terminal=false\n"
         "X-GNOME-Autostart-enabled=true\n"
     )
@@ -203,8 +203,8 @@ def main() -> int:
             return 1
 
     _step("Setup complete.")
-    _step("Run 'ffp-daemon' to start the action daemon.")
-    _step("Run 'ffp-listener' to start the global hotkey listener (requires daemon).")
+    _step("Run 'flowkey-daemon' to start the action daemon.")
+    _step("Run 'flowkey-listener' to start the global hotkey listener (requires daemon).")
     return 0
 
 

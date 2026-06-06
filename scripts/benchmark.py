@@ -189,7 +189,7 @@ def start_benchmark(
                 except Exception as exc:
                     log.warning("start_serve after benchmark failed: %s", exc)
 
-    _thread = threading.Thread(target=worker, name="ffp-benchmark", daemon=True)
+    _thread = threading.Thread(target=worker, name="flowkey-benchmark", daemon=True)
     _thread.start()
     return {"ok": True, "state": "running", "model": model}
 

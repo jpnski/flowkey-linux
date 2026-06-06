@@ -4,7 +4,7 @@
 # Same flow as install_release.cmd:
 #   1. Verify Python 3.11+ is on PATH.
 #   2. pip install ../release (the wheel).
-#   3. Run ffp-install for prerequisite checks + config + model pull.
+#   3. Run flowkey-install for prerequisite checks + config + model pull.
 #
 # Pass a phase as the first arg to skip steps:
 #   ./install_release.sh             # full flow (default)
@@ -31,11 +31,11 @@ python -m pip install --upgrade pip >/dev/null
 python -m pip install --upgrade "$RELEASE_DIR"
 
 echo "[Flowkey] Running prerequisite checks and config bootstrap..."
-ffp-install --phase "$PHASE"
+flowkey-install --phase "$PHASE"
 
 echo
 echo "[Flowkey] Install step complete."
 echo "                 If a reboot is required for AMD/NPU drivers, reboot now then run:"
-echo "                     ffp-install --phase postreboot"
+echo "                     flowkey-install --phase postreboot"
 echo "                 Otherwise launch the tray app via:"
 echo "                     $SCRIPT_DIR/grammarFix.ahk"

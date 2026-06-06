@@ -80,7 +80,7 @@ def _popen_logged(name: str, argv: list[str], **kwargs) -> subprocess.Popen:
 def _chat_launch_argv() -> list[str]:
     parent_arg = ["--parent-pid", str(os.getpid())]
     if getattr(sys, "frozen", False):
-        chat_bin = Path(sys.executable).with_name("ffp-chat")
+        chat_bin = Path(sys.executable).with_name("flowkey-chat")
         if chat_bin.exists():
             return [str(chat_bin), *parent_arg]
     return [sys.executable, str(HERE / "chat_popup.py"), *parent_arg]
@@ -122,7 +122,7 @@ def _act_status(_args: dict) -> str:
 
 # ---- Autostart toggle (XDG autostart .desktop file) ---------------------------
 
-_AUTOSTART_DESKTOP = "ffp-listener.desktop"
+_AUTOSTART_DESKTOP = "flowkey-listener.desktop"
 _AUTOSTART_DIR = Path(os.path.expanduser("~/.config/autostart"))
 
 
@@ -152,7 +152,7 @@ def _act_set_autostart(args: dict) -> dict:
             "Type=Application\n"
             "Name=Flowkey Listener\n"
             "Comment=Flowkey global hotkey listener\n"
-            f"Exec=ffp-listener --parent-pid {os.getpid()}\n"
+            f"Exec=flowkey-listener --parent-pid {os.getpid()}\n"
             "Terminal=false\n"
             "X-GNOME-Autostart-enabled=true\n"
         )
