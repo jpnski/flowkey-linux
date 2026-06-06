@@ -1,18 +1,20 @@
 # Flowkey
 
-Flowkey is a Windows desktop assistant that adds local-LLM hotkeys for grammar fixes, prompt rewrites, summaries, explanations, tone changes, chat, ask-in-chat, and note capture.
+Flowkey is a Windows desktop assistant that adds local-LLM hotkeys for grammar fixes, prompt rewrites, summaries, explanations, tone changes, chat, ask-in-chat, note capture, and FastFlowLM benchmarks.
 
-All model calls stay on the local machine through [FastFlowLM](https://fastflowlm.com). No cloud service, analytics, or telemetry is used by the app.
+Everything runs locally through [FastFlowLM](https://fastflowlm.com). No cloud service, analytics, or telemetry is used by the app.
+
+Current version: `1.5.4`
 
 ## Screenshots
 
 | Dashboard config | Benchmark runs |
 |---|---|
-| ![Flowkey dashboard Config tab](docs/screenshots/dashboard-config.png) | ![Flowkey dashboard Benchmark tab](docs/screenshots/dashboard-benchmark.png) |
+| ![Flowkey dashboard Config tab](assets/screenshots/dashboard-config.png) | ![Flowkey dashboard Benchmark tab](assets/screenshots/dashboard-benchmark.png) |
 
 | Notes setup |
 |---|
-| ![Flowkey dashboard Notes tab](docs/screenshots/dashboard-notes.png) |
+| ![Flowkey dashboard Notes tab](assets/screenshots/dashboard-notes.png) |
 
 ## Requirements
 
@@ -29,7 +31,7 @@ Install these first on a new machine:
 1. Install the latest AMD Ryzen AI / NPU driver from [AMD Support](https://www.amd.com/en/support) or from your laptop manufacturer's support page.
 2. Reboot Windows after the driver install.
 3. Confirm the NPU appears in **Device Manager** under **Neural processors** or as an AMD Ryzen AI / NPU device.
-4. Install FastFlowLM from [fastflowlm.com](https://fastflowlm.com/) or directly from the latest Windows installer:
+4. Install FastFlowLM from [fastflowlm.com](https://fastflowlm.com/) or directly with PowerShell:
 
 ```powershell
 Invoke-WebRequest https://github.com/FastFlowLM/FastFlowLM/releases/latest/download/flm-setup.exe -OutFile flm-setup.exe
@@ -44,50 +46,61 @@ flm pull qwen3.5:4b
 flm run qwen3.5:4b
 ```
 
-## Install
+## Install Flowkey
 
-For normal users, use the GitHub release installer when available:
-
-1. Open the repository's **Releases** page.
-2. Download `Flowkey-Setup-<version>.exe`.
-3. Double-click it and finish the first-run wizard.
-
-For source installs from a clone or zip:
+For source installs from this repository:
 
 ```powershell
-cd release
 .\INSTALL.cmd
 ```
 
-More install details are in [`release/README.md`](release/README.md).
+For Python/developer installs:
 
-## Repository Layout
+```powershell
+python -m pip install -e ".[dev]"
+```
 
-- `release/` - the runnable application, installer scripts, package metadata, and tests.
-- `release/scripts/` - Python modules and AutoHotkey v2 scripts.
-- `release/installer/` - Inno Setup, PyInstaller, signing, and installer build scripts.
-- `release/setup/defaults/` - first-run seed configuration shipped with the installer.
-- `release/tests/` - Python and AutoHotkey regression tests.
-- `docs/` - publishing and manual regression documentation.
-- `.github/workflows/` - CI and release-installer workflows.
+Launch the app with AutoHotkey v2:
 
-Runtime data, logs, build output, downloaded vendor binaries, caches, and local editor/agent state are intentionally ignored and should not be committed.
+```powershell
+& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" .\scripts\grammarFix.ahk
+```
+
+## Hotkeys
+
+| Hotkey | Action |
+|---|---|
+| `Ctrl+Shift+G` | Grammar fix on selected text |
+| `prompt:` + `Ctrl+Shift+G` | Rewrite rough text into a structured prompt |
+| `summarize:` + `Ctrl+Shift+G` | Create a 3-bullet summary |
+| `explain:` + `Ctrl+Shift+G` | Explain code, regex, SQL, or technical text |
+| `tone:` + `Ctrl+Shift+G` | Rewrite in the selected tone preset |
+| `Ctrl+Shift+T` | Open chat |
+| `Ctrl+Shift+A` | Ask in chat with selected text |
+| `Ctrl+Alt+N` | Capture a note |
+
+## Project Layout
+
+- `scripts/` - Python modules and AutoHotkey v2 app code.
+- `installer/` - optional installer build scripts.
+- `setup/defaults/` - default config used on first run.
+- `tests/` - Python and AutoHotkey regression tests.
+- `config/grammar_hotkey.config.example.json` - example user config.
+- `assets/screenshots/` - README screenshots.
+
+Runtime data, logs, build output, downloaded vendor binaries, caches, and local editor state are intentionally ignored and should not be committed.
 
 ## Development Checks
 
 ```powershell
-python -m pip install -e ".\release[dev]"
-ruff check release/scripts release/tests
-pytest release/tests -q
+python -m pip install -e ".[dev]"
+ruff check scripts tests
+pytest tests -q
 ```
 
 AutoHotkey tests are run by CI on Windows. Locally, run them with AutoHotkey v2:
 
 ```powershell
-& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut release\tests\test_parse_mode.ahk
-& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut release\tests\test_classify_clipboard.ahk
+& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut tests\test_parse_mode.ahk
+& "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe" /ErrorStdOut tests\test_classify_clipboard.ahk
 ```
-
-## Publish To GitHub
-
-Use [`docs/GITHUB_DEPLOYMENT.md`](docs/GITHUB_DEPLOYMENT.md) for the full step-by-step checklist: cleanup, validation, repository creation, CI secrets, tagging, and release publishing.
