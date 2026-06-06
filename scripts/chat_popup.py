@@ -32,9 +32,10 @@ import urllib.request
 import uuid
 from tkinter import scrolledtext, ttk
 
-import config
 import loopback_http
 import paths as _paths
+
+import config
 
 log = logging.getLogger("flowkey.chat")
 
@@ -806,7 +807,7 @@ def _is_pid_alive(pid: int) -> bool:
 
 
 def _watch_parent_pid(parent_pid: int, app: ChatApp) -> None:
-    """Exit chat when the launching grammarFix.ahk process goes away."""
+    """Exit chat when the launching process goes away."""
     if parent_pid <= 0:
         return
 
@@ -826,7 +827,7 @@ def _watch_parent_pid(parent_pid: int, app: ChatApp) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Flowkey local LLM chat popup")
     parser.add_argument("--parent-pid", type=int, default=0,
-                        help="exit when this PID disappears (grammarFix.ahk)")
+                        help="exit when this PID disappears (launcher)")
     args = parser.parse_args()
 
     cfg = load_config()

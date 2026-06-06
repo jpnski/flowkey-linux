@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import config
 import pytest
+
+import config
 
 
 def test_validate_patch_file_allows_temp(tmp_path, monkeypatch):

@@ -27,9 +27,10 @@ import tkinter as tk
 import urllib.error
 from tkinter import messagebox, scrolledtext, ttk
 
-import config
 import paths as _paths
 from loopback_http import daemon_headers, json_get, json_post
+
+import config
 
 log = logging.getLogger("flowkey.first_run")
 
@@ -131,7 +132,7 @@ def warmup_via_daemon(model: str) -> tuple[bool, str]:
 
 
 def open_dashboard() -> bool:
-    """Signal the AHK front-end to open the dashboard via daemon marker file."""
+    """Signal the listener or TUI to open the dashboard via daemon marker file."""
     try:
         payload = json_post(
             DAEMON_URL + "/action/open_dashboard",
@@ -411,8 +412,8 @@ class WizardApp:
     def _page_hotkeys(self, parent: ttk.Frame) -> ttk.Frame:
         f = ttk.Frame(parent)
         ttk.Label(f, wraplength=560, justify="left", foreground="#444",
-                  text=("These are the default hotkeys. AHK syntax: ^ = Ctrl, ! = Alt, + = Shift, "
-                        "# = Win. Examples: ^+g  ^!n  +#a")
+                  text=("These are the default hotkeys. Key notation: ^ = Ctrl, ! = Alt, + = Shift, "
+                        "# = Win (Super). Examples: ^+g  ^!n  +#a")
                   ).pack(anchor="w", pady=(0, 12))
 
         grid = ttk.Frame(f)
@@ -584,9 +585,9 @@ class WizardApp:
 
 
 def main() -> int:
-    # Always run when invoked explicitly (Inno Setup or "Re-run wizard"
-    # menu item). Only skip when launched from AHK startup and the marker
-    # already exists. The AHK side controls that gate by passing --check.
+    # Always run when invoked explicitly (Installer or "Re-run wizard"
+    # menu item). Only skip when launched from the listener and the marker
+    # already exists. The listener controls that gate by passing --check.
     if "--check" in sys.argv and DONE_MARKER.exists():
         return 0
     WizardApp().run()

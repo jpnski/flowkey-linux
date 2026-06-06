@@ -1,6 +1,6 @@
 """System tray icon for Flowkey (Linux).
 
-Port of the AHK tray menu. Uses pystray (X11) or dasbus StatusNotifierItem
+Uses pystray (X11) or dasbus StatusNotifierItem
 (Wayland). Falls back gracefully if neither is available.
 
 See TODO.md Phase 4 for the full implementation plan.

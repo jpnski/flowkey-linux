@@ -17,12 +17,13 @@ import urllib.request
 from pathlib import Path
 
 import actions
-import config
 import flm_server
 import llm_client
+import paths as _paths
 import telemetry
 import updater
-import paths as _paths
+
+import config
 
 try:
     from _version import __version__ as APP_VERSION
@@ -100,8 +101,11 @@ def _snapshot_usage_acc() -> dict:
     return llm_client.snapshot_usage_acc(_USAGE_ACC)
 
 
-def shortcut_to_ahk(shortcut: str) -> str:
-    """Translate `Ctrl+Shift+G` style strings into AHK hotkey notation (`^+g`)."""
+def shortcut_to_compact(shortcut: str) -> str:
+    """Translate `Ctrl+Shift+G` style strings into compact modifier notation (`^+g`).
+
+    ^ = Ctrl, + = Shift, ! = Alt, # = Win/Super.
+    """
     raw = str(shortcut or "").replace(" ", "")
     if not raw:
         return ""
@@ -128,7 +132,7 @@ def list_hotkeys() -> None:
     if not ENABLED:
         return
     for mode_id, mode_cfg in (CONFIG.get("modes") or {}).items():
-        hotkey = shortcut_to_ahk((mode_cfg or {}).get("shortcut"))
+        hotkey = shortcut_to_compact((mode_cfg or {}).get("shortcut"))
         if hotkey:
             label = str((mode_cfg or {}).get("label") or mode_id).replace("\t", " ").strip()
             print(f"{mode_id}\t{hotkey}\t{label}")
@@ -276,7 +280,7 @@ def cycle_tone_preset() -> str:
 
 
 def server_status() -> str:
-    """Return a single-line key=value summary used by the AHK Dashboard."""
+    """Return a single-line key=value summary used by the dashboard/tray."""
     reachable = is_flm_server_reachable()
     pid = _read_pid()
     alive = _is_pid_alive(pid)
@@ -572,7 +576,7 @@ def apply_config_patch(patch: dict) -> str:
 
 
 def build_config_snapshot() -> dict:
-    """Build the live config snapshot consumed by the AHK dashboard.
+    """Build the live config snapshot consumed by the dashboard.
 
     Single source of truth — used by both the daemon's `config_snapshot`
     action (fast path, in-process) and the CLI `--app-action config_snapshot`

@@ -1,7 +1,7 @@
-"""Dashboard GUI for Flowkey (Linux).
+"""Dashboard GUI for Flowkey (Linux) — DEPRECATED (replaced by Textual TUI).
 
-Port of `ui/dashboard.ahk` + `ui/dashboard_handlers.ahk`. Built with tkinter.
-6 tabs: Overview, Telemetry, History, Notes, Config, Benchmark.
+Built with tkinter. 6 tabs: Overview, Telemetry, History, Notes, Config, Benchmark.
+Kept as a stub for backward compatibility.
 
 See TODO.md Phase 4 for the full implementation plan.
 """

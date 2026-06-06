@@ -40,9 +40,10 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import config  # noqa: E402
-import notify  # noqa: E402
 import grammar_fix  # noqa: E402
+import notify  # noqa: E402
+
+import config  # noqa: E402
 
 
 def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedProcess:

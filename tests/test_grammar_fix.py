@@ -65,10 +65,10 @@ def test_save_config_writes_utf8_json_with_newline(fresh_modules):
         ("Ctrl + Shift + A", "^+a"),
     ],
 )
-def test_shortcut_to_ahk_translates_variants(fresh_modules, shortcut, expected):
+def test_shortcut_to_compact_translates_variants(fresh_modules, shortcut, expected):
     grammar_fix = fresh_modules("grammar_fix")
 
-    assert grammar_fix.shortcut_to_ahk(shortcut) == expected
+    assert grammar_fix.shortcut_to_compact(shortcut) == expected
 
 
 def test_normalize_output_cleans_smart_punctuation_and_spacing(fresh_modules):
