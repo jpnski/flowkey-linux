@@ -6,7 +6,7 @@ The flow:
      content first, then renames the file into its chosen folder.
   3. A final toast surfaces the result.
 
-Vault layout (user-configurable, defaults to %USERPROFILE%\\Documents\\FastFlowPrompt Notes):
+Vault layout (user-configurable, defaults to $HOME/Documents/Flowkey_Notes):
 
   <vault>/
     inbox/                       # fallback for low confidence or fetch failures
@@ -64,7 +64,7 @@ def _notes_cfg() -> dict:
 
 
 def _vault_dir() -> Path:
-    raw = _notes_cfg().get("vault_dir") or r"%USERPROFILE%\Documents\FastFlowPrompt Notes"
+    raw = _notes_cfg().get("vault_dir") or "$HOME/Documents/Flowkey_Notes"
     return Path(os.path.expandvars(raw))
 
 

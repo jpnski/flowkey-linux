@@ -21,10 +21,10 @@ Three install modes are auto-detected:
 2. **production** — system-wide pip install under /usr, /usr/local, /opt.
 
        /usr/local/lib/python3.X/site-packages/scripts/  (read-only APP_DIR)
-       ~/.local/share/FastFlowPrompt/                   (per-user, writable)
-       ├── config\
-       ├── data\
-       └── logs\
+       ~/.local/share/Flowkey/                          (per-user, writable)
+       ├── config/
+       ├── data/
+       └── logs/
 
    APP_DIR is read-only (system-owned). User-mutable state lives under
    XDG_DATA_HOME, so each Linux user gets their own config, notes, and logs.
@@ -34,7 +34,7 @@ Three install modes are auto-detected:
    APP_DIR collapses to the user-local writable root (XDG_DATA_HOME) and all
    four user dirs sit underneath it — same as dev, just rooted at the user dir.
 
-Override auto-detection by setting FFP_RELEASE_ROOT in the env. That forces
+Overrides auto-detection by setting FFP_RELEASE_ROOT in the env. That forces
 single-tree layout (mode = "dev") rooted at the given path.
 """
 
@@ -77,14 +77,14 @@ def _is_under_prefix(path: Path) -> bool:
 def _user_local_root() -> Path:
     """User-local writable root for runtime state.
 
-    Uses $XDG_DATA_HOME/FastFlowPrompt, falling back to ~/.local/share/FastFlowPrompt.
+    Uses $XDG_DATA_HOME/Flowkey, falling back to ~/.local/share/Flowkey.
     """
     xdg_data = os.environ.get("XDG_DATA_HOME")
     if xdg_data:
-        return (Path(xdg_data) / "FastFlowPrompt").resolve()
+        return (Path(xdg_data) / "Flowkey").resolve()
     home = os.path.expanduser("~")
     if home:
-        return (Path(home) / ".local" / "share" / "FastFlowPrompt").resolve()
+        return (Path(home) / ".local" / "share" / "Flowkey").resolve()
     return SCRIPTS_DIR.parent  # last-ditch fallback
 
 

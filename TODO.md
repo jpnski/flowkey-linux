@@ -245,7 +245,7 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [x] **39.** Final `pytest tests/ -q` pass on Linux — **81 passed, 2 skipped** (tkinter not available in headless CI)
 
-- [ ] **40.** Update `README.md` with Linux-specific install instructions, dependencies, troubleshooting, and TUI usage guide
+- [x] **40.** Update `README.md` with Linux-specific install instructions, dependencies, troubleshooting, and TUI usage guide
 
 ---
 

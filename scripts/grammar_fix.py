@@ -606,7 +606,7 @@ def build_config_snapshot() -> dict:
             "min_chunk_chars": int(routing_cfg.get("min_chunk_chars") or 700),
         },
         "notes": {
-            "vault_dir": str(notes_cfg.get("vault_dir") or r"%USERPROFILE%\Documents\FastFlowPrompt Notes"),
+            "vault_dir": str(notes_cfg.get("vault_dir") or "$HOME/Documents/Flowkey_Notes"),
             "categories": list(notes_cfg.get("categories") or []),
             "fetch_timeout_seconds": int(notes_cfg.get("fetch_timeout_seconds") or 8),
             "max_extracted_chars": int(notes_cfg.get("max_extracted_chars") or 2000),

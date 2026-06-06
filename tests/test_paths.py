@@ -31,7 +31,7 @@ def test_paths_uses_xdg_data_home_when_not_release_layout(monkeypatch):
     monkeypatch.setattr(paths, "_is_under_prefix", lambda path: False)
 
     # user-local mode collapses APP_DIR onto XDG_DATA_HOME root.
-    assert paths._user_local_root() == Path("/home/user/.local/share/FastFlowPrompt")
+    assert paths._user_local_root() == Path("/home/user/.local/share/Flowkey")
 
 
 def test_user_local_root_falls_back_to_home_dot_local(monkeypatch):
@@ -42,7 +42,7 @@ def test_user_local_root_falls_back_to_home_dot_local(monkeypatch):
     monkeypatch.setattr(paths, "_looks_like_dev_root", lambda path: False)
     monkeypatch.setattr(paths, "_is_under_prefix", lambda path: False)
 
-    assert paths._user_local_root() == Path("/home/testuser/.local/share/FastFlowPrompt")
+    assert paths._user_local_root() == Path("/home/testuser/.local/share/Flowkey")
 
 
 def test_ensure_dirs_creates_runtime_folders(monkeypatch, tmp_path: Path):
@@ -70,3 +70,6 @@ def test_migrate_legacy_layout_moves_known_runtime_files(monkeypatch, tmp_path: 
 
     assert any("prompt_history.jsonl" in line for line in moved)
     assert paths.PROMPT_HISTORY_FILE.exists()
+
+
+
