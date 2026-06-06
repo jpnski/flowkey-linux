@@ -52,6 +52,12 @@ DEFAULT_CONFIG = {
     "dictionary": {
         "protected_words": [],
     },
+    "hotkeys": {
+        "grammar_fix": "^+g",
+        "open_chat": "^+t",
+        "capture_note": "^!n",
+        "ask_chat": "^+a",
+    },
     "notes": {
         "vault_dir": "$HOME/Documents/Flowkey_Notes",
         "categories": [

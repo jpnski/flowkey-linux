@@ -26,7 +26,8 @@ import updater
 import config
 
 try:
-    from _version import __version__ as APP_VERSION
+    from importlib.metadata import version as _pkg_version
+    APP_VERSION = _pkg_version("flowkey")
 except Exception:
     APP_VERSION = "0.0.0"
 

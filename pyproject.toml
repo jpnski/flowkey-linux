@@ -60,8 +60,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/agr77one/Fastflow"
-Issues = "https://github.com/agr77one/Fastflow/issues"
+Homepage = "https://github.com/jpnski/flowkey-linux"
+Issues = "https://github.com/jpnski/flowkey-linux/issues"
 
 [project.scripts]
 flowkey-daemon = "daemon:main"
@@ -76,7 +76,6 @@ include-package-data = true
 package-dir = { "" = "scripts" }
 packages = { find = { where = ["scripts"], include = ["tui*"] } }
 py-modules = [
-    "_version",
     "actions",
     "benchmark",
     "config",

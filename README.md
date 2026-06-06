@@ -14,7 +14,7 @@ Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow). This is a
 - **Multi-panel dashboard** — Telemetry, latency percentiles, recent history, notes vault, config editor, benchmark runner
 - **System tray** — Quick server start/stop, warmup, performance mode toggle
 - **Note capture** — Save selections to categorized notes (Ctrl+Alt+N)
-- **Context-aware modes** — Grammar fix, prompt rewriting (Claude-ready), summarization, code/regex/SQL explanation, tone shifting
+- **Context-aware modes** — Grammar fix, prompt rewriting (Claude-ready), summarization, code/regex/SQL explanation, tone shifting, ask selection in chat
 - **Clipboard routing** — Mode prefixes (`grammar:`, `summarize:`, `explain:`, `prompt:`, `tone:`) inline in selected text
 
 ---
@@ -65,6 +65,8 @@ Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow). This is a
 
 The script handles: system packages, `input` group membership, udev rules for evdev, `pip install`, config bootstrap, XDG desktop entries, and model pull.
 
+**Note:** System packages, group setup, and udev rules require `sudo` and are only applied in the default (system-wide) mode. In `--user` or `--venv` mode these steps are skipped — install system deps manually if needed.
+
 #### Option 2: Manual pip install
 
 ```bash
@@ -104,7 +106,7 @@ pip install -e .[dev]
 ## Quick Start
 
 ```bash
-# 1. Start the action daemon (background HTTP server)
+# 1. Start the action daemon (background HTTP server, port 52650)
 flowkey-daemon
 
 # 2. Start the global hotkey listener
@@ -112,15 +114,20 @@ flowkey-listener
 
 # 3. Or just use the TUI directly (auto-starts daemon)
 flowkey-tui
+
+# CLI grammar/prompt processing (standalone, no daemon needed)
+flowkey-grammar-fix --text "grammar: i seen him yesterday"
 ```
 
-**First-run:** `flowkey-install` will prompt you to pull the default model (`gemma4-it:e4b`) if not already installed:
+**First-run:** `flowkey-install` will pull the default model (`gemma4-it:e4b`) if not already installed:
 
 ```bash
 flowkey-install
 ```
 
 **Autostart:** The installer creates an XDG autostart entry for `flowkey-listener` at `~/.config/autostart/flowkey-listener.desktop`. You can toggle autostart from the tray or dashboard.
+
+**Lifecycle:** All daemons accept `--parent-pid <pid>` to exit automatically when the parent process dies — useful when launched from the TUI or tray.
 
 ---
 
@@ -157,6 +164,7 @@ Prefix the first line of your selected text with a mode directive:
 - `explain:` — Explain code/regex/SQL
 - `prompt:` — Rewrite as Claude-ready prompt
 - `tone:` — Apply tone preset (formal/casual/friendly)
+- `ask:` — Send selected text to the chat tab for further conversation
 
 Example: Select `summarize: Quarterly report shows 12% growth in Q3...` and press your hotkey → gets replaced with a 3-bullet summary.
 
@@ -175,6 +183,7 @@ Launch: `flowkey-tui`
   - `/explain <text>` — Explain code/regex/SQL
   - `/prompt <text>` — Rewrite as a Claude-ready prompt
   - `/tone <text>` — Shift tone (current preset)
+  - `/ask <text>` — Send selected text to chat
   - `/clear` — Clear conversation history
   - `/help` — Show help
 - **Mode prefixes** work inline (same as hotkey mode)
@@ -195,7 +204,7 @@ Six panels auto-refreshing every 10s:
 ### Keyboard shortcuts
 
 | Key | Action |
-|---|---|---|
+|---|---|
 | `F1` | Switch to Chat tab |
 | `F2` | Switch to Dashboard tab |
 | `Ctrl+P` | Open command palette (theme browser, search, etc.) |
@@ -289,6 +298,7 @@ ruff check scripts tests
 
 ```
 flowkey-linux/
+├── CHANGELOG.md                 # Release history
 ├── install.sh                   # Linux system installer
 ├── pyproject.toml               # Package config + dependencies
 ├── scripts/                     # Python source
@@ -312,6 +322,8 @@ flowkey-linux/
 │   ├── notify.py                # Desktop notifications
 │   ├── benchmark.py             # LLM benchmark runner
 │   ├── pull.py                  # Model pull manager
+│   ├── subprocess_util.py       # Subprocess helpers
+│   ├── tools.py                 # Shared utility functions
 │   ├── updater.py               # Self-update for flowkey
 │   ├── _data/
 │   │   └── config.json          # Seed config (shipped with package)
