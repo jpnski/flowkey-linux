@@ -49,6 +49,7 @@ TabbedContent {
 
 TabPane {
     padding: 0;
+    height: 1fr;
 }
 
 TabPane:focus {

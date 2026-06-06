@@ -192,6 +192,13 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
   - Added `packages = { find = { where = ["scripts"], include = ["tui*"] } }` for tui package
   - Registered `flowkey-tui = "tui.app:main"` console script
 
+### Phase 4 follow-up — bug fixes
+
+- [x] **33a.** `MessageBubble` content invisible at runtime (2026-06-06):
+  - Root cause: `on_mount` called `update()` after layout, but content was invisible (possibly zero-height during initial layout or `$primary`/`$secondary` markup colors don't resolve in Rich's inline parser)
+  - Fix: refactored to pass formatted content to `super().__init__()` for correct initial height; replaced `_render_content()` with `_format_content()` returning string; removed `$primary`/`$secondary` from markup since theme variables aren't available in Rich markup context
+  - `update_content()` and `finalize_stream()` now call `self.update()` directly
+
 ---
 
 ## Phase 5 — Installer & Distribution

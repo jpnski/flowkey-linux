@@ -24,7 +24,6 @@ from pathlib import Path
 import loopback_http
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.message import Message
 from textual.widgets import Button, Input, Static
 
 log = logging.getLogger("flowkey.tui.chat")
@@ -81,44 +80,30 @@ HELP_TEXT = """
 class MessageBubble(Static):
     """A single chat message with role-based styling."""
 
-    class Showing(Message):
-        """Posted when bubble is mounted/ready."""
-
     def __init__(self, role: str, content: str, is_streaming: bool = False) -> None:
-        super().__init__()
         self._role = role
         self._content = content
         self._is_streaming = is_streaming
+        rendered = self._format_content()
+        super().__init__(rendered)
 
-    def on_mount(self) -> None:
-        self._render_content()
-        self.post_message(self.Showing())
-
-    def _render_content(self) -> None:
-        """Render content with role-based styling."""
+    def _format_content(self) -> str:
+        """Format role + content for display."""
         role_tag = "You" if self._role == "user" else "Flowkey"
         if self._is_streaming:
             role_tag += " (streaming)"
-
-        # Escape content for safe display
         safe_content = self._content.replace("[", "[[")
-        prefix_class = "user" if self._role == "user" else "assistant"
-
-        self.update(
-            f"[bold {prefix_class}]{role_tag}:[/] {safe_content}"
-            if self._is_streaming
-            else f"[bold {prefix_class}]{role_tag}:[/]\n\n{safe_content}"
-        )
+        return f"[bold]{role_tag}:[/]\n\n{safe_content}"
 
     def update_content(self, content: str) -> None:
         """Update content in-place (for streaming)."""
         self._content = content
-        self._render_content()
+        self.update(self._format_content())
 
     def finalize_stream(self) -> None:
         """Mark streaming as complete."""
         self._is_streaming = False
-        self._render_content()
+        self.update(self._format_content())
 
 
 # ---------------------------------------------------------------------------
