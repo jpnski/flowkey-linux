@@ -32,7 +32,7 @@ Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow). This is a
 | `xdotool` | X11 window info + key simulation |
 | `ydotool` | Wayland key simulation (paste-back) |
 | `wl-clipboard` | Wayland clipboard access |
-| `libnotify-bin` / `libnotify | Desktop notifications (`notify-send`) |
+| `libnotify-bin` / `libnotify` | Desktop notifications (`notify-send`) |
 
 #### Python dependencies (installed via pip)
 
@@ -168,7 +168,7 @@ Launch: `flowkey-tui`
 ### Chat tab (F1)
 
 - **Type a message** and press Enter to send (streaming response from LLM)
-#- **Slash commands:**
+- **Slash commands:**
   - `/grammar <text>` — Fix grammar and wording
   - `/summarize <text>` — Summarize as 3 bullet points
   - `/explain <text>` — Explain code/regex/SQL
@@ -316,9 +316,9 @@ flowkey-linux/
 │       ├── flowkey.png          # Tray icon (256x256)
 │       └── flowkey.ico          # Windows icon (fallback)
 ├── config/
-│   └── grammar_hotkey.config.example.json
+│   ├── grammar_hotkey.config.example.json
+│   └── grammar_hotkey.config.seed.json
 ├── tests/                       # pytest test suite
-├── setup/                       # Legacy Windows install scripts
 └── TODO.md                      # Porting plan
 ```
 
