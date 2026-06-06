@@ -8,7 +8,7 @@ import pytest
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = RELEASE_ROOT / "scripts"
-CONFIG_EXAMPLE = RELEASE_ROOT / "config" / "grammar_hotkey.config.example.json"
+CONFIG_EXAMPLE = SCRIPTS_DIR / "_data" / "config.json"
 
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
@@ -17,11 +17,10 @@ if str(SCRIPTS_DIR) not in sys.path:
 @pytest.fixture
 def isolated_release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root = tmp_path / "release_root"
-    (root / "config").mkdir(parents=True)
-    (root / "data").mkdir()
+    (root / "data").mkdir(parents=True)
     (root / "logs").mkdir()
     if CONFIG_EXAMPLE.exists():
-        (root / "config" / CONFIG_EXAMPLE.name).write_text(
+        (root / CONFIG_EXAMPLE.name).write_text(
             CONFIG_EXAMPLE.read_text(encoding="utf-8"),
             encoding="utf-8",
         )
@@ -38,7 +37,6 @@ def fresh_modules(isolated_release_root: Path):
         "daemon",
         "notes",
         "install",
-        "first_run",
         "settings_gui",
     ]:
         sys.modules.pop(name, None)

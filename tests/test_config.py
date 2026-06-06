@@ -34,7 +34,7 @@ def test_filter_config_patch_modes_whitelist():
 
 
 def test_save_config_atomic(tmp_path):
-    cfg_path = tmp_path / "grammar_hotkey.config.json"
+    cfg_path = tmp_path / "config.json"
     config.save_config(cfg_path, {"flm_model": "a"})
     config.save_config(cfg_path, {"flm_model": "b"})
     loaded = json.loads(cfg_path.read_text(encoding="utf-8"))
@@ -42,7 +42,7 @@ def test_save_config_atomic(tmp_path):
 
 
 def test_load_config_deep_merges_mode_defaults(tmp_path):
-    cfg_path = tmp_path / "grammar_hotkey.config.json"
+    cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps({"modes": {"tone": {"preset": "casual"}}}), encoding="utf-8")
 
     loaded = config.load_config(cfg_path)

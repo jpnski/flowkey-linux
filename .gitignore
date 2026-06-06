@@ -5,8 +5,8 @@
 # Private runtime data
 data/
 
-# Live working config
-config/grammar_hotkey.config.json
+# Live working config (dev mode sits at project root)
+config.json
 
 # Machine-specific logs
 logs/
@@ -44,3 +44,6 @@ venv/
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Local verification checklist
+verification.md

@@ -1,7 +1,7 @@
 """Flowkey Textual TUI package.
 
-Provides a modern terminal-based replacement for the tkinter chat popup
-and dashboard. See TODO.md Phase 4 for the implementation plan.
+Terminal UI with chat and dashboard panels. Replaces the old tkinter-based
+chat popup, dashboard, and first-run wizard.
 """
 
 from __future__ import annotations

@@ -7,20 +7,22 @@ Usage:
     flowkey-tui [--parent-pid N]
 
 Keyboard:
-    Ctrl+1      Chat tab
-    Ctrl+2      Dashboard tab
-    Ctrl+P      Command palette
+    F1          Chat tab
+    F2          Dashboard tab
+    Ctrl+P      Command palette (includes theme browser)
     Ctrl+Q      Quit
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import signal
 import sys
 import threading
+from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -29,6 +31,9 @@ from textual.widgets import Footer, TabbedContent, TabPane
 
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
+
+import config as _config
+import paths as _paths
 
 log = logging.getLogger("flowkey.tui.app")
 
@@ -120,13 +125,31 @@ class FlowkeyTUI(App):
     SCREENS = {"main": FlowkeyScreen}
     BINDINGS: list[Binding] = []
 
-    def __init__(self, parent_pid: int = 0) -> None:
+    def __init__(self, parent_pid: int = 0, ingest_text: str = "") -> None:
         super().__init__()
         self._parent_pid = parent_pid
+        self._ingest_text = ingest_text
         self._shutdown_event = threading.Event()
+        self._theme_ready = False  # gate: skip save for initial mount
 
     def on_mount(self) -> None:
+        # Load persisted theme from config
+        try:
+            cfg = _config.load_config(_paths.CONFIG_FILE)
+            saved = cfg.get("theme")
+            if saved and isinstance(saved, str):
+                self.theme = saved
+        except Exception:
+            pass
+        self._theme_ready = True
+
         self.push_screen("main")
+
+        # Ingest text from --ingest-file (sent by daemon via Ctrl+Shift+A)
+        if self._ingest_text:
+            screen = self.get_screen("main")
+            chat = screen.query_one(ChatWidget)
+            chat.post_ingested_text(self._ingest_text)
 
         # Start parent-PID watcher
         if self._parent_pid > 0:
@@ -135,6 +158,24 @@ class FlowkeyTUI(App):
                 args=(self._parent_pid,),
                 daemon=True,
             ).start()
+
+    def watch_dark(self, dark: bool) -> None:
+        """Auto-save theme when user changes it via command palette.
+
+        ``dark`` is a Textual reactive — it fires on any theme change
+        (dark ↔ light or switching between two dark themes). We save
+        ``self.theme`` to capture the exact theme name.
+        """
+        if not self._theme_ready:
+            return  # skip the initial apply from on_mount
+        try:
+            theme = self.theme
+            cfg = _config.load_config(_paths.CONFIG_FILE)
+            cfg["theme"] = theme
+            _config.save_config(_paths.CONFIG_FILE, cfg)
+            log.info("theme saved: %s", theme)
+        except Exception as exc:
+            log.warning("failed to persist theme: %s", exc)
 
     def _watch_parent(self, parent_pid: int) -> None:
         """Exit when parent process disappears."""
@@ -168,6 +209,10 @@ def main() -> int:
         help="Exit when this PID disappears (0 = no parent watch)",
     )
     parser.add_argument(
+        "--ingest-file", type=str, default="",
+        help="Path to a JSON file with ingest payload to send to chat on startup",
+    )
+    parser.add_argument(
         "--log-level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
     )
@@ -183,8 +228,27 @@ def main() -> int:
     # periodically and "connection refused" is normal when daemon is off.
     logging.getLogger("flowkey.http").setLevel(logging.ERROR)
 
+    # Read ingest payload from file if provided
+    ingest_text = ""
+    if args.ingest_file:
+        ingest_path = Path(args.ingest_file)
+        try:
+            payload = json.loads(ingest_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                ingest_text = str(payload.get("text") or "")
+                source = str(payload.get("source_app") or "")
+                if source:
+                    ingest_text = f"[From {source}]\n{ingest_text}"
+        except Exception as exc:
+            log.warning("failed to read ingest file %s: %s", args.ingest_file, exc)
+        # Delete the ingest file regardless — it's one-shot
+        try:
+            ingest_path.unlink()
+        except OSError:
+            pass
+
     # Register signal handlers
-    app = FlowkeyTUI(parent_pid=args.parent_pid)
+    app = FlowkeyTUI(parent_pid=args.parent_pid, ingest_text=ingest_text)
 
     def _signal_handler(signum, frame):
         app._on_signal(signum, frame)

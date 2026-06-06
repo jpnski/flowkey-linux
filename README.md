@@ -126,12 +126,13 @@ flowkey-install
 
 ## Configuration
 
-Config file: `~/.local/share/Flowkey/config/grammar_hotkey.config.json` (or `$XDG_DATA_HOME/Flowkey/config/`)
+Config file: `~/.local/share/Flowkey/config.json` (or `$XDG_DATA_HOME/Flowkey/config.json`)
 
 Key settings:
 
 | Key | Default | Description |
 |---|---|---|
+| `theme` | `textual-dark` | TUI theme name (Textual built-in, e.g. `dracula`, `catppuccin-mocha`) |
 | `flm_base_url` | `http://127.0.0.1:52625` | FLM server address |
 | `flm_model` | `gemma4-it:e4b` | LLM model |
 | `flm_timeout_seconds` | 60 | Request timeout |
@@ -194,10 +195,10 @@ Six panels auto-refreshing every 10s:
 ### Keyboard shortcuts
 
 | Key | Action |
-|---|---|
+|---|---|---|
 | `F1` | Switch to Chat tab |
 | `F2` | Switch to Dashboard tab |
-| `Ctrl+P` | Open command palette |
+| `Ctrl+P` | Open command palette (theme browser, search, etc.) |
 | `Ctrl+Q` | Quit |
 
 ---
@@ -312,12 +313,11 @@ flowkey-linux/
 │   ├── benchmark.py             # LLM benchmark runner
 │   ├── pull.py                  # Model pull manager
 │   ├── updater.py               # Self-update for flowkey
+│   ├── _data/
+│   │   └── config.json          # Seed config (shipped with package)
 │   └── assets/
 │       ├── flowkey.png          # Tray icon (256x256)
 │       └── flowkey.ico          # Windows icon (fallback)
-├── config/
-│   ├── grammar_hotkey.config.example.json
-│   └── grammar_hotkey.config.seed.json
 ├── tests/                       # pytest test suite
 └── TODO.md                      # Porting plan
 ```

@@ -7,12 +7,9 @@
 # After install, console scripts land in your PATH:
 #   flowkey-daemon       - long-running action daemon
 #   flowkey-grammar-fix  - CLI entry point for grammar/prompt processing
-#   flowkey-chat         - chat popup (tkinter, deprecated)
-#   flowkey-tui          - Textual TUI (replaces chat + dashboard)
+#   flowkey-tui          - Textual TUI (chat + dashboard)
 #   flowkey-listener     - global hotkey listener (X11/Wayland)
 #   flowkey-tray         - system tray icon (X11/Wayland)
-#   flowkey-dashboard    - tkinter dashboard (deprecated)
-#   flowkey-first-run    - first-run wizard
 #   flowkey-install      - Linux system setup
 
 [build-system]
@@ -69,26 +66,21 @@ Issues = "https://github.com/agr77one/Fastflow/issues"
 [project.scripts]
 flowkey-daemon = "daemon:main"
 flowkey-grammar-fix = "grammar_fix:main"
-flowkey-chat = "chat_popup:main"
-flowkey-first-run = "first_run:main"
 flowkey-install = "install:main"
 flowkey-listener = "listener:main"
 flowkey-tray = "tray:main"
-flowkey-dashboard = "dashboard:main"
 flowkey-tui = "tui.app:main"
 
 [tool.setuptools]
+include-package-data = true
 package-dir = { "" = "scripts" }
 packages = { find = { where = ["scripts"], include = ["tui*"] } }
 py-modules = [
     "_version",
     "actions",
     "benchmark",
-    "chat_popup",
     "config",
     "daemon",
-    "dashboard",
-    "first_run",
     "flm_server",
     "grammar_fix",
     "install",

@@ -348,6 +348,14 @@ class ChatWidget(Container):
                     except OSError:
                         pass
 
+    def post_ingested_text(self, text: str) -> None:
+        """Called by the TUI app when launched with --ingest-file.
+
+        Sends the text into the chat as if the user typed it.
+        """
+        if text:
+            self._send_chat_message(text)
+
     def _send_chat_message(self, text: str) -> None:
         """Send a regular chat message to the LLM with streaming."""
         self._add_message("user", text)

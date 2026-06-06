@@ -29,6 +29,7 @@ CLAUDE_PROMPT_SYSTEM_PROMPT = (
 
 DEFAULT_CONFIG = {
     "enabled": True,
+    "theme": "textual-dark",
     "flm_base_url": "http://127.0.0.1:52625",
     "flm_model": "gemma4-it:e4b",
     "flm_timeout_seconds": 60,
@@ -50,6 +51,37 @@ DEFAULT_CONFIG = {
     },
     "dictionary": {
         "protected_words": [],
+    },
+    "notes": {
+        "vault_dir": "$HOME/Documents/Flowkey_Notes",
+        "categories": [
+            "work/technical",
+            "work/managerial",
+            "work/career",
+            "research",
+            "personal",
+            "ideas",
+        ],
+        "fetch_timeout_seconds": 8,
+        "max_extracted_chars": 2000,
+        "low_confidence_to_inbox": True,
+        "generate_title": True,
+        "generate_summary": True,
+    },
+    "chat": {
+        "llm_auth_bearer": "flm",
+        "request_timeout_seconds": 240,
+        "temperature": 0.3,
+        "max_tokens": 1024,
+        "context_window_turns": 12,
+        "system_prompt": "You are a concise, helpful local assistant. Answer in Markdown. Keep replies short unless asked to elaborate.",
+        "window": {
+            "title": "Local LLM Chat",
+            "width": 520,
+            "height": 560,
+            "topmost": True,
+            "single_instance_port": 52640,
+        },
     },
     "modes": {
         "grammar": {
@@ -165,7 +197,7 @@ def validate_patch_file(path: Path) -> Path:
     allowed_roots = (
         temp_root,
         _paths.DATA_DIR.resolve(),
-        _paths.CONFIG_DIR.resolve(),
+        _paths.CONFIG_FILE.parent.resolve(),
     )
     for root in allowed_roots:
         try:

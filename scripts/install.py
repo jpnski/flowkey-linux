@@ -32,7 +32,7 @@ HERE = Path(__file__).resolve().parent
 
 _paths.ensure_dirs()
 CONFIG_LIVE = _paths.CONFIG_FILE
-CONFIG_EXAMPLE = _paths.CONFIG_EXAMPLE_FILE
+CONFIG_SEED = _paths.CONFIG_SEED_FILE
 
 # Default model to pull on first install.
 DEFAULT_MODEL = "gemma4-it:e4b"
@@ -87,15 +87,15 @@ def _check_groups() -> list[str]:
 def _ensure_config() -> None:
     if CONFIG_LIVE.exists():
         return
-    if CONFIG_EXAMPLE.exists():
-        shutil.copyfile(CONFIG_EXAMPLE, CONFIG_LIVE)
-        _step("Created grammar_hotkey.config.json from example.")
+    if CONFIG_SEED.exists():
+        shutil.copyfile(CONFIG_SEED, CONFIG_LIVE)
+        _step("Created config.json from seed.")
         return
     CONFIG_LIVE.write_text(
         json.dumps(config.DEFAULT_CONFIG, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    _step("Created grammar_hotkey.config.json from built-in defaults.")
+    _step("Created config.json from built-in defaults.")
 
 
 # ---------- XDG autostart ----------------------------------------------------

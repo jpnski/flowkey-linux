@@ -10,12 +10,12 @@ Three install modes are auto-detected:
 1. **dev** — running from the source tree.
 
        ./
-       ├── scripts/   ← this file lives here
-       ├── config/    ← user-editable JSON config
-       ├── data/      ← runtime data
-       ├── logs/      ← daemon.log, flm_server.log
-        ├── config/    ← tracked seed + example configs
-        └── scripts/   ← Python source
+        ├── scripts/   ← Python source (this file lives here)
+        │   └── _data/
+        │       └── config.json   ← tracked seed config
+        ├── config/
+        ├── data/      ← runtime data
+        └── logs/      ← daemon.log, flm_server.log
 
    APP_DIR = USER_ROOT = the project root (single tree).
 
@@ -23,7 +23,7 @@ Three install modes are auto-detected:
 
        /usr/local/lib/python3.X/site-packages/scripts/  (read-only APP_DIR)
        ~/.local/share/Flowkey/                          (per-user, writable)
-       ├── config/
+       ├── config.json
        ├── data/
        └── logs/
 
@@ -52,7 +52,7 @@ SCRIPTS_DIR: Path = Path(__file__).resolve().parent
 
 def _looks_like_dev_root(path: Path) -> bool:
     """True if `path` contains the in-repo source layout."""
-    return (path / "config").exists() and (path / "scripts").exists()
+    return (path / "scripts" / "_data").exists() and (path / "scripts").exists()
 
 
 def _is_under_prefix(path: Path) -> bool:
@@ -137,22 +137,20 @@ USER_ROOT: Path = _resolve_user_root()
 # use USER_ROOT or the named *_DIR exports below.
 RELEASE_ROOT: Path = APP_DIR
 
-CONFIG_DIR: Path = USER_ROOT / "config"
 DATA_DIR:   Path = USER_ROOT / "data"
 LOGS_DIR:   Path = USER_ROOT / "logs"
 
 
 def ensure_dirs() -> None:
     """Create writable runtime folders on demand. Cheap to call repeatedly."""
-    for d in (CONFIG_DIR, DATA_DIR, LOGS_DIR):
+    for d in (DATA_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 
 # ---------- Named files ------------------------------------------------------
 
-# Config
-CONFIG_FILE:         Path = CONFIG_DIR / "grammar_hotkey.config.json"
-CONFIG_EXAMPLE_FILE: Path = CONFIG_DIR / "grammar_hotkey.config.example.json"
+# Config — flattened at USER_ROOT (no subdirectory)
+CONFIG_FILE:         Path = USER_ROOT / "config.json"
 
 # Runtime data
 COUNTERS_FILE:       Path = DATA_DIR / "prompt_counters.ini"
@@ -170,9 +168,9 @@ MARKER_OPEN_DASHBOARD:    Path = DATA_DIR / ".open_dashboard"
 DAEMON_LOG_FILE:     Path = LOGS_DIR / "daemon.log"
 FLM_SERVER_LOG_FILE: Path = LOGS_DIR / "flm_server.log"
 
-# Seed file (read-only, ships in source tree). On first run we copy it to
+# Source template shipped in the source tree. On first run we copy it to
 # CONFIG_FILE if the user doesn't already have one.
-CONFIG_SEED_FILE:    Path = APP_DIR / "config" / "grammar_hotkey.config.seed.json"
+CONFIG_SEED_FILE:    Path = SCRIPTS_DIR / "_data" / "config.json"
 
 
 def seed_config_if_missing() -> bool:
@@ -187,10 +185,6 @@ def seed_config_if_missing() -> bool:
         return False
     ensure_dirs()
     CONFIG_FILE.write_bytes(CONFIG_SEED_FILE.read_bytes())
-    # Also drop the .example.json next to it for reference.
-    example_seed = CONFIG_SEED_FILE.with_name("grammar_hotkey.config.example.json")
-    if example_seed.exists() and not CONFIG_EXAMPLE_FILE.exists():
-        CONFIG_EXAMPLE_FILE.write_bytes(example_seed.read_bytes())
     return True
 
 
@@ -207,9 +201,8 @@ def legacy_scripts_path(name: str) -> Path:
 
 
 _LEGACY_MIGRATIONS: tuple[tuple[Path, Path], ...] = (
-    (legacy_scripts_path("grammar_hotkey.config.json"),         CONFIG_FILE),
-    (legacy_scripts_path("grammar_hotkey.config.example.json"), CONFIG_EXAMPLE_FILE),
-    (legacy_scripts_path("prompt_counters.ini"),                COUNTERS_FILE),
+    (legacy_scripts_path("grammar_hotkey.config.json"), CONFIG_FILE),
+    (legacy_scripts_path("prompt_counters.ini"),        COUNTERS_FILE),
     (legacy_scripts_path("prompt_history.jsonl"),               PROMPT_HISTORY_FILE),
     (legacy_scripts_path("grammar_fix_history.jsonl"),          GRAMMAR_HISTORY_FILE),
     (legacy_scripts_path("chat_threads.jsonl"),                 CHAT_THREADS_FILE),

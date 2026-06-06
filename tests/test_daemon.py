@@ -45,13 +45,11 @@ def daemon_server(daemon_module):
 def test_actions_count_and_expected_names(daemon_module):
     # v1.4.0 added get_autostart_state + set_autostart -> 38.
     # Late v1.4.0 added flm_update_check, bench_start/status/history,
-    # note_search, pull_start/status -> 46; v1.5.4 removed model_stats -> 45.
-    assert len(daemon_module.ACTIONS) == 48
+    # v2.0.0: removed chat_reload, chat_restart (chat_popup deleted) -> 46.
+    assert len(daemon_module.ACTIONS) == 46
     assert "version" in daemon_module.ACTIONS
     assert "apply_config_patch" in daemon_module.ACTIONS
     assert "chat_send_selection" in daemon_module.ACTIONS
-    assert "chat_reload" in daemon_module.ACTIONS
-    assert "chat_restart" in daemon_module.ACTIONS
     assert "open_dashboard" in daemon_module.ACTIONS
     assert "config_snapshot" in daemon_module.ACTIONS
     assert "get_autostart_state" in daemon_module.ACTIONS
@@ -313,15 +311,4 @@ def test_open_dashboard_writes_marker(daemon_server, tmp_path, monkeypatch):
     assert (tmp_path / ".open_dashboard").read_text(encoding="utf-8") == "1\n"
 
 
-def test_build_chat_ingest_payload_reads_fresh_nonce(daemon_module, tmp_path, monkeypatch):
-    """After chat spawns it writes a new nonce; each send must re-read the file."""
-    monkeypatch.setattr(daemon_module._paths, "DATA_DIR", tmp_path)
-    nonce_file = tmp_path / ".chat_ingest_nonce"
-    nonce_file.write_text("stale-nonce", encoding="utf-8")
 
-    first = json.loads(daemon_module._build_chat_ingest_payload("hello", "xterm").decode())
-    assert first["nonce"] == "stale-nonce"
-
-    nonce_file.write_text("fresh-nonce", encoding="utf-8")
-    second = json.loads(daemon_module._build_chat_ingest_payload("hello", "xterm").decode())
-    assert second["nonce"] == "fresh-nonce"

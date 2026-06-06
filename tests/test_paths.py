@@ -19,7 +19,7 @@ def test_paths_prefers_env_override(monkeypatch, tmp_path: Path):
     paths = _reload_paths()
 
     assert paths.RELEASE_ROOT == custom.resolve()
-    assert paths.CONFIG_DIR == custom / "config"
+    assert paths.CONFIG_FILE == custom / "config.json"
 
 
 def test_paths_uses_xdg_data_home_when_not_release_layout(monkeypatch):
@@ -52,7 +52,7 @@ def test_ensure_dirs_creates_runtime_folders(monkeypatch, tmp_path: Path):
 
     paths.ensure_dirs()
 
-    assert paths.CONFIG_DIR.exists()
+    assert paths.CONFIG_FILE.parent.exists()
     assert paths.DATA_DIR.exists()
     assert paths.LOGS_DIR.exists()
 
