@@ -40,7 +40,7 @@ TITLE_MAX_CHARS = 24
 
 DEFAULTS = {
     "llm_base_url": "http://127.0.0.1:52625",
-    "llm_model": "qwen3.5:4b",
+    "llm_model": "gemma4-it:e4b",
     "llm_auth_bearer": "flm",
     "request_timeout_seconds": 240,
     "temperature": 0.3,

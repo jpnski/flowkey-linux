@@ -49,7 +49,7 @@ DEFAULT_FLM_URL = "http://127.0.0.1:52625"
 
 # Default models surface up-front; user can refresh to see what FLM has locally.
 DEFAULT_MODEL_CHOICES = [
-    "qwen3.5:4b",
+    "gemma4-it:e4b",
     "nanbeige4.1:3b",
     "phi4:14b",
 ]
@@ -317,7 +317,7 @@ class WizardApp:
         f = ttk.Frame(parent)
         ttk.Label(f, wraplength=560, justify="left", foreground="#444",
                   text=("Pick a model. If FastFlowLM is already running, click Refresh to see what's "
-                        "installed locally. To download a new one, type the name (e.g. qwen3.5:4b) "
+                        "installed locally. To download a new one, type the name (e.g. gemma4-it:e4b) "
                         "and click Pull.")
                   ).pack(anchor="w", pady=(0, 12))
 

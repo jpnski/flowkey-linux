@@ -25,7 +25,7 @@ import threading
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer, Header, TabbedContent, TabPane
+from textual.widgets import Footer, TabbedContent, TabPane
 
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
@@ -47,6 +47,10 @@ TabbedContent {
     height: 1fr;
 }
 
+Underline {
+    display: none;
+}
+
 TabPane {
     padding: 0;
     height: 1fr;
@@ -54,12 +58,6 @@ TabPane {
 
 TabPane:focus {
     border: none;
-}
-
-Header {
-    background: $primary;
-    color: $text;
-    text-style: bold;
 }
 
 Footer {
@@ -87,13 +85,12 @@ class FlowkeyScreen(Screen):
     """Main screen with tabbed chat + dashboard."""
 
     BINDINGS = [
-        Binding("ctrl+1", "switch_tab('chat')", "Chat", show=True),
-        Binding("ctrl+2", "switch_tab('dashboard')", "Dashboard", show=True),
+        Binding("f1", "switch_tab('chat')", "Chat", show=True),
+        Binding("f2", "switch_tab('dashboard')", "Dashboard", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
 
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
         with TabbedContent(initial="chat"):
             with TabPane("💬 Chat", id="chat"):
                 yield ChatWidget()
@@ -121,9 +118,7 @@ class FlowkeyTUI(App):
     TITLE = "Flowkey TUI"
     CSS = APP_CSS
     SCREENS = {"main": FlowkeyScreen}
-    BINDINGS = [
-        Binding("ctrl+p", "command_palette", "Command palette", show=True),
-    ]
+    BINDINGS: list[Binding] = []
 
     def __init__(self, parent_pid: int = 0) -> None:
         super().__init__()
@@ -150,14 +145,10 @@ class FlowkeyTUI(App):
             try:
                 if not os.path.exists(f"/proc/{parent_pid}/status"):
                     log.info("parent PID %d gone, exiting TUI", parent_pid)
-                    self.call_from_thread(self.exit)
+                    self.call_later(self.exit)
                     return
             except OSError:
                 pass
-
-    def action_command_palette(self) -> None:
-        """Open the Textual command palette."""
-        self.action_command_palette()  # defer to built-in
 
     def _on_signal(self, signum: int, _frame) -> None:
         log.info("received signal %d, exiting TUI", signum)
@@ -187,6 +178,10 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+
+    # Suppress expected daemon-connection warnings — dashboard polls
+    # periodically and "connection refused" is normal when daemon is off.
+    logging.getLogger("flowkey.http").setLevel(logging.ERROR)
 
     # Register signal handlers
     app = FlowkeyTUI(parent_pid=args.parent_pid)

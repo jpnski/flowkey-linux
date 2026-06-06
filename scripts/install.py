@@ -7,7 +7,7 @@ pip can't:
 - Config bootstrap (copy example → live)
 - Input group + udev for evdev hotkey capture
 - XDG autostart .desktop file creation
-- Model pull (`flm pull qwen3.5:4b`)
+- Model pull (`flm pull gemma4-it:e4b`)
 
 Invocation:
   ffp-install                   # full flow
@@ -35,7 +35,7 @@ CONFIG_LIVE = _paths.CONFIG_FILE
 CONFIG_EXAMPLE = _paths.CONFIG_EXAMPLE_FILE
 
 # Default model to pull on first install.
-DEFAULT_MODEL = "qwen3.5:4b"
+DEFAULT_MODEL = "gemma4-it:e4b"
 
 # Linux tools needed for full functionality.
 OPTIONAL_TOOLS = {

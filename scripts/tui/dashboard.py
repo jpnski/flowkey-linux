@@ -160,13 +160,25 @@ class DashboardWidget(Vertical):
                 yield Static("Loading Benchmark...", id="bench-content", classes="panel-content")
 
     def on_mount(self) -> None:
-        self._refresh_all()
-        self.set_interval(REFRESH_INTERVAL, self._refresh_all)
+        # First load: synchronous so data appears immediately.
+        self._fetch_all_sync()
+        # Then poll in background.
+        self.set_interval(REFRESH_INTERVAL, self._refresh_all_async)
 
     # ---- Refresh ----
 
-    def _refresh_all(self) -> None:
-        """Fetch all dashboard data in background threads."""
+    def _fetch_all_sync(self) -> None:
+        """Fetch all data synchronously (called once on mount)."""
+        self._fetch_overview()
+        self._fetch_telemetry()
+        self._fetch_history()
+        self._fetch_notes()
+        self._fetch_config()
+        self._fetch_bench()
+        self._fetch_models()
+
+    def _refresh_all_async(self) -> None:
+        """Fetch all dashboard data in background threads (periodic poll)."""
         threading.Thread(target=self._fetch_overview, daemon=True).start()
         threading.Thread(target=self._fetch_telemetry, daemon=True).start()
         threading.Thread(target=self._fetch_history, daemon=True).start()
@@ -184,6 +196,8 @@ class DashboardWidget(Vertical):
         result = {}
         if config_resp.get("ok"):
             result["config"] = config_resp["result"]
+        else:
+            result["_error"] = config_resp.get("error", "daemon unreachable")
         if version_resp.get("ok"):
             result["version"] = _resolve_result(version_resp)
         if status_resp.get("ok"):
@@ -192,15 +206,15 @@ class DashboardWidget(Vertical):
             result["stats"] = stats_resp["result"]
 
         self._overview_data = result
-        self.call_from_thread(self._render_overview)
+        self.call_later(self._render_overview)
 
     def _fetch_telemetry(self) -> None:
         resp = _daemon_post("stats")
         if resp.get("ok"):
             self._stats_data = resp.get("result") or {}
         else:
-            self._stats_data = {"error": resp.get("error", "unknown")}
-        self.call_from_thread(self._render_telemetry)
+            self._stats_data = {"error": resp.get("error", "daemon unreachable")}
+        self.call_later(self._render_telemetry)
 
     def _fetch_history(self) -> None:
         """Read recent history entries from the JSONL file."""
@@ -220,26 +234,32 @@ class DashboardWidget(Vertical):
             except OSError:
                 pass
         self._history_data = entries[-50:]  # last 50
-        self.call_from_thread(self._render_history)
+        self.call_later(self._render_history)
 
     def _fetch_notes(self) -> None:
         config_resp = _daemon_post("config_snapshot")
         if config_resp.get("ok"):
             cfg = config_resp["result"]
             self._notes_data = cfg.get("notes", {})
-        self.call_from_thread(self._render_notes)
+        else:
+            self._notes_data = {"_error": config_resp.get("error", "daemon unreachable")}
+        self.call_later(self._render_notes)
 
     def _fetch_config(self) -> None:
         resp = _daemon_post("config_snapshot")
         if resp.get("ok"):
             self._config_data = resp.get("result") or {}
-        self.call_from_thread(self._render_config)
+        else:
+            self._config_data = {"_error": resp.get("error", "daemon unreachable")}
+        self.call_later(self._render_config)
 
     def _fetch_bench(self) -> None:
         resp = _daemon_post("bench_history")
         if resp.get("ok"):
             self._bench_data = resp.get("result") or {}
-        self.call_from_thread(self._render_bench)
+        else:
+            self._bench_data = {"_error": resp.get("error", "daemon unreachable")}
+        self.call_later(self._render_bench)
 
     def _fetch_models(self) -> None:
         resp = _daemon_post("models_installed")
@@ -253,6 +273,10 @@ class DashboardWidget(Vertical):
         d = self._overview_data
         config = d.get("config", {})
         stats = d.get("stats", {})
+
+        if d.get("_error") or not config:
+            content.update(f"[red]Daemon unreachable — {d.get('_error', 'no data')}[/]")
+            return
 
         lines = [
             "[bold]Overview[/]",
@@ -343,6 +367,10 @@ class DashboardWidget(Vertical):
         content = self.query_one("#notes-content", Static)
         d = self._notes_data
 
+        if d.get("_error"):
+            content.update(f"[red]Daemon unreachable — {d['_error']}[/]")
+            return
+
         lines = [
             "[bold]Notes & Vault[/]",
             "",
@@ -362,6 +390,10 @@ class DashboardWidget(Vertical):
     def _render_config(self) -> None:
         content = self.query_one("#config-content", Static)
         d = self._config_data
+
+        if d.get("_error"):
+            content.update(f"[red]Daemon unreachable — {d['_error']}[/]")
+            return
 
         lines = [
             "[bold]Configuration[/]",
@@ -440,7 +472,7 @@ class DashboardWidget(Vertical):
         lines.append("")
         lines.append("[bold]Run new benchmark[/]")
         lines.append("  [dim]Use the daemon action bench_start with a model name.[/]")
-        lines.append("  Example: POST /action/bench_start { \"args\": { \"model\": \"qwen3.5:4b\" } }")
+        lines.append("  Example: POST /action/bench_start { \"args\": { \"model\": \"gemma4-it:e4b\" } }")
 
         content.update("\n".join(lines))
 
@@ -452,7 +484,7 @@ class DashboardWidget(Vertical):
         if model:
             resp = _daemon_post("bench_start", {"model": model})
             result = _resolve_result(resp)
-            self.call_from_thread(self._refresh_all)
+            self.call_later(self._refresh_all)
             from textual import log as tlog
             tlog(f"Benchmark started: {result}")
 

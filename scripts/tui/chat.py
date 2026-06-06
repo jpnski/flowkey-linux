@@ -23,7 +23,7 @@ from pathlib import Path
 
 import loopback_http
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, VerticalScroll
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Input, Static
 
 log = logging.getLogger("flowkey.tui.chat")
@@ -92,8 +92,12 @@ class MessageBubble(Static):
         role_tag = "You" if self._role == "user" else "Flowkey"
         if self._is_streaming:
             role_tag += " (streaming)"
-        safe_content = self._content.replace("[", "[[")
-        return f"[bold]{role_tag}:[/]\n\n{safe_content}"
+        # Only escape markup brackets for untrusted user input.
+        # Assistant content (HELP_TEXT, LLM responses) may use [b]/[i] etc.
+        content = self._content
+        if self._role == "user":
+            content = content.replace("[", "[[")
+        return f"[bold]{role_tag}:[/]\n\n{content}"
 
     def update_content(self, content: str) -> None:
         """Update content in-place (for streaming)."""
@@ -145,10 +149,13 @@ class ChatWidget(Container):
     }
 
     #chat-input-row {
-        height: 3;
-        dock: bottom;
-        padding: 0 1 1 1;
+        height: auto;
+        padding: 0 1;
         background: $surface;
+    }
+
+    #chat-input-row > Horizontal {
+        height: 3;
     }
 
     #chat-input {
@@ -160,16 +167,10 @@ class ChatWidget(Container):
         margin-left: 1;
     }
 
-    #status-bar {
-        height: 1;
-        background: $panel;
-        color: $text-muted;
-        padding: 0 1;
-        dock: bottom;
-    }
-
     #connection-status {
         width: 1fr;
+        height: 1;
+        color: $text-muted;
     }
     """
 
@@ -180,7 +181,7 @@ class ChatWidget(Container):
         self._streaming_active = False
         self._current_bubble: MessageBubble | None = None
         self._llm_base_url = "http://127.0.0.1:52625"
-        self._llm_model = "qwen3.5:4b"
+        self._llm_model = "gemma4-it:e4b"
         self._daemon_available = False
         self._lock = threading.Lock()
 
@@ -188,11 +189,10 @@ class ChatWidget(Container):
         with VerticalScroll(id="chat-messages"):
             yield MessageBubble("assistant", HELP_TEXT)
 
-        with Horizontal(id="chat-input-row"):
-            yield Input(placeholder="Type a message... (or /grammar, /help, ...)", id="chat-input")
-            yield Button("Send", id="send-btn", variant="primary")
-
-        with Horizontal(id="status-bar"):
+        with Vertical(id="chat-input-row"):
+            with Horizontal():
+                yield Input(placeholder="Type a message... (or /grammar, /help, ...)", id="chat-input")
+                yield Button("Send", id="send-btn", variant="primary")
             yield Static("", id="connection-status")
 
     def on_mount(self) -> None:
@@ -298,9 +298,9 @@ class ChatWidget(Container):
         def _run():
             try:
                 result = self._run_grammar_fix(mode, text)
-                self.call_from_thread(self._finalize_stream, result)
+                self.call_later(self._finalize_stream, result)
             except Exception as exc:
-                self.call_from_thread(self._finalize_stream, f"[red]Error: {exc}[/]")
+                self.call_later(self._finalize_stream, f"[red]Error: {exc}[/]")
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -412,13 +412,13 @@ class ChatWidget(Container):
                                 )
                                 if delta:
                                     full_content += delta
-                                    self.call_from_thread(
+                                    self.call_later(
                                         self._update_stream, full_content
                                     )
                             except json.JSONDecodeError:
                                 continue
 
-            self.call_from_thread(self._finalize_stream, full_content or "[red]No response from LLM[/]")
+            self.call_later(self._finalize_stream, full_content or "[red]No response from LLM[/]")
 
         except urllib.error.HTTPError as exc:
             error_body = ""
@@ -427,10 +427,10 @@ class ChatWidget(Container):
             except Exception:
                 pass
             err_msg = f"[red]LLM HTTP {exc.code}: {error_body}[/]"
-            self.call_from_thread(self._finalize_stream, err_msg)
+            self.call_later(self._finalize_stream, err_msg)
         except Exception as exc:
             err_msg = f"[red]LLM error: {exc}[/]"
-            self.call_from_thread(self._finalize_stream, err_msg)
+            self.call_later(self._finalize_stream, err_msg)
 
     # ---- Message management ----
 

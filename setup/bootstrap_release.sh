@@ -6,7 +6,7 @@ RELEASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG_EXAMPLE="${RELEASE_DIR}/config/grammar_hotkey.config.example.json"
 CONFIG_FILE="${RELEASE_DIR}/config/grammar_hotkey.config.json"
 PY_SCRIPT="${RELEASE_DIR}/scripts/grammar_fix.py"
-DEFAULT_MODEL="qwen3.5:4b"
+DEFAULT_MODEL="gemma4-it:e4b"
 
 log() {
   printf '[ffp-bootstrap] %s\n' "$*"

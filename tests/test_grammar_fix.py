@@ -13,7 +13,7 @@ def test_load_config_returns_defaults_when_file_missing(fresh_modules):
     cfg = grammar_fix.load_config()
 
     assert cfg["enabled"] is True
-    assert cfg["flm_model"] == "qwen3.5:4b"
+    assert cfg["flm_model"] == "gemma4-it:e4b"
     assert cfg["server"]["performance_mode"] == "balanced"
     assert cfg["history_store_text"] is False
 

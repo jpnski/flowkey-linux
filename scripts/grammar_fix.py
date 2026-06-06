@@ -69,7 +69,7 @@ def refresh_runtime_config() -> None:
     except ValueError as exc:
         log.warning("invalid flm_base_url in config, using default: %s", exc)
         FLM_BASE_URL = "http://127.0.0.1:52625"
-    FLM_MODEL = str(CONFIG.get("flm_model") or "qwen3.5:4b").strip()
+    FLM_MODEL = str(CONFIG.get("flm_model") or "gemma4-it:e4b").strip()
     FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_timeout_seconds") or 30)
     HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history_filename") or "grammar_fix_history.jsonl")
     HISTORY_STORE_TEXT = bool(CONFIG.get("history_store_text", False))
