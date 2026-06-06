@@ -1,14 +1,17 @@
-"""Shared subprocess helpers for Windows-friendly background execution."""
+"""Shared subprocess helpers for Linux background execution.
+
+Simple wrappers over stdlib subprocess with opinionated defaults
+(capture_output=True, text=True, check=False). No Windows-specific flags.
+"""
 
 from __future__ import annotations
 
 import subprocess
 
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+NO_WINDOW: int = 0  # kept for back-compat with callers that still reference it
 
 
 def run_hidden(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
-    kwargs.setdefault("creationflags", NO_WINDOW)
     kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
     kwargs.setdefault("check", False)
@@ -16,5 +19,4 @@ def run_hidden(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def popen_hidden(argv: list[str], **kwargs) -> subprocess.Popen:
-    kwargs.setdefault("creationflags", NO_WINDOW)
     return subprocess.Popen(argv, **kwargs)

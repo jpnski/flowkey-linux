@@ -29,7 +29,7 @@
     "ask_chat":     "^+a"
   },
   "notes": {
-    "vault_dir": "%USERPROFILE%\\Documents\\FastFlowPrompt Notes",
+    "vault_dir": "$HOME/Documents/FastFlowPrompt Notes",
     "categories": [
       "work/technical",
       "work/managerial",

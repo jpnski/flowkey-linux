@@ -8,14 +8,14 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-log = logging.getLogger("ffp.http")
+log = logging.getLogger("flowkey.http")
 
 DAEMON_API_HEADER = "X-FFP-API"
 DAEMON_API_VERSION = "1"
 
 
 def daemon_headers() -> dict[str, str]:
-    """Headers required by ffp_daemon for state-changing POST requests."""
+    """Headers required by daemon for state-changing POST requests."""
     return {DAEMON_API_HEADER: DAEMON_API_VERSION}
 
 

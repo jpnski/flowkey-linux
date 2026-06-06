@@ -1,9 +1,9 @@
-"""Flowkey grammar/prompt CLI invoked by the AHK hotkey.
+"""Flowkey grammar/prompt CLI (Linux).
 
 Pipeline: read selected text → route to FastFlowLM (`/v1/chat/completions`) →
 return corrected text + emit timing/token metrics on stderr → append a row to
 the JSONL history. Also exposes a small `--app-action` / `--server` surface so
-the AHK tray can manage the local FLM server and read aggregate stats.
+the tray/dashboard can manage the local FLM server and read aggregate stats.
 """
 
 from __future__ import annotations
@@ -16,24 +16,18 @@ import time
 import urllib.request
 from pathlib import Path
 
-import ffp_actions
-import ffp_config
-import ffp_flm_server
-import ffp_llm_client
-import ffp_telemetry
-import ffp_updater
+import actions
+import config
+import flm_server
+import llm_client
+import telemetry
+import updater
 import paths as _paths
-from subprocess_util import NO_WINDOW
 
 try:
     from _version import __version__ as APP_VERSION
 except Exception:
     APP_VERSION = "0.0.0"
-
-# Subprocess creation flag: hides the console window of console-mode children
-# (tasklist, taskkill, netstat, flm, where). Without this, even from
-# pythonw.exe these can briefly flash a window on some Windows builds.
-_NO_WINDOW = NO_WINDOW
 
 # Run a one-time migration of pre-v1.2.0 layouts (files under scripts/) into
 # the new folders. Idempotent + cheap — does nothing if everything's already
@@ -45,16 +39,16 @@ TOOL_DIR = _paths.SCRIPTS_DIR          # kept for callers that still resolve rel
 CONFIG_PATH = _paths.CONFIG_FILE
 PID_PATH = _paths.FLM_PID_FILE
 
-DEFAULT_CONFIG = ffp_config.DEFAULT_CONFIG
-log = logging.getLogger("ffp.grammar")
+DEFAULT_CONFIG = config.DEFAULT_CONFIG
+log = logging.getLogger("flowkey.grammar")
 
 
 def load_config() -> dict:
-    return ffp_config.load_config(CONFIG_PATH)
+    return config.load_config(CONFIG_PATH)
 
 
 def save_config(cfg: dict) -> None:
-    ffp_config.save_config(CONFIG_PATH, cfg)
+    config.save_config(CONFIG_PATH, cfg)
     refresh_runtime_config()
 
 
@@ -68,7 +62,7 @@ def refresh_runtime_config() -> None:
     CONFIG = load_config()
     ENABLED = bool(CONFIG.get("enabled", True))
     try:
-        FLM_BASE_URL = ffp_config.validate_flm_base_url(
+        FLM_BASE_URL = config.validate_flm_base_url(
             str(CONFIG.get("flm_base_url") or "http://127.0.0.1:52625")
         )
     except ValueError as exc:
@@ -92,18 +86,18 @@ def refresh_runtime_config() -> None:
 
 refresh_runtime_config()
 
-PERF_TO_PMODE = ffp_flm_server.PERF_TO_PMODE
+PERF_TO_PMODE = flm_server.PERF_TO_PMODE
 
 # Token usage accumulator across all sub-calls made during one call_flm() run.
 _USAGE_ACC = {"prompt_tokens": 0, "completion_tokens": 0}
 
 
 def _reset_usage_acc() -> None:
-    ffp_llm_client.reset_usage_acc(_USAGE_ACC)
+    llm_client.reset_usage_acc(_USAGE_ACC)
 
 
 def _snapshot_usage_acc() -> dict:
-    return ffp_llm_client.snapshot_usage_acc(_USAGE_ACC)
+    return llm_client.snapshot_usage_acc(_USAGE_ACC)
 
 
 def shortcut_to_ahk(shortcut: str) -> str:
@@ -141,51 +135,51 @@ def list_hotkeys() -> None:
 
 
 def normalize_output(text: str) -> str:
-    return ffp_llm_client.normalize_output(text)
+    return llm_client.normalize_output(text)
 
 
 def append_history(entry: dict) -> None:
-    ffp_telemetry.append_history(HISTORY_PATH, entry)
+    telemetry.append_history(HISTORY_PATH, entry)
 
 
 def _flm_host_port() -> tuple[str, int]:
-    return ffp_flm_server.flm_host_port(FLM_BASE_URL)
+    return flm_server.flm_host_port(FLM_BASE_URL)
 
 
 def is_flm_server_reachable() -> bool:
-    return ffp_flm_server.is_flm_server_reachable(FLM_BASE_URL)
+    return flm_server.is_flm_server_reachable(FLM_BASE_URL)
 
 
 def _read_pid() -> int:
-    return ffp_flm_server.read_pid(PID_PATH)
+    return flm_server.read_pid(PID_PATH)
 
 
 def _write_pid(pid: int) -> None:
-    ffp_flm_server.write_pid(PID_PATH, pid)
+    flm_server.write_pid(PID_PATH, pid)
 
 
 def _remove_pid() -> None:
-    ffp_flm_server.remove_pid(PID_PATH)
+    flm_server.remove_pid(PID_PATH)
 
 
 def _is_pid_alive(pid: int) -> bool:
-    return ffp_flm_server.is_pid_alive(pid, _NO_WINDOW)
+    return flm_server.is_pid_alive(pid)
 
 
 def _kill_pid(pid: int) -> bool:
-    return ffp_flm_server.kill_pid(pid, _NO_WINDOW)
+    return flm_server.kill_pid(pid)
 
 
 def _find_pids_on_port(port: int) -> list[int]:
-    return ffp_flm_server.find_pids_on_port(port, _NO_WINDOW)
+    return flm_server.find_pids_on_port(port)
 
 
 def _warmup_request(model: str) -> None:
-    ffp_flm_server.warmup_request(model, FLM_TIMEOUT_SECONDS, _call_flm_api)
+    flm_server.warmup_request(model, FLM_TIMEOUT_SECONDS, _call_flm_api)
 
 
 def start_flm_server(force_restart: bool = False) -> str:
-    settings = ffp_flm_server.FlmServerSettings(
+    settings = flm_server.FlmServerSettings(
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
@@ -196,9 +190,8 @@ def start_flm_server(force_restart: bool = False) -> str:
         log_file=SERVER_LOG_FILE,
         pid_path=PID_PATH,
         logs_dir=_paths.LOGS_DIR,
-        no_window=_NO_WINDOW,
     )
-    return ffp_flm_server.start_flm_server(
+    return flm_server.start_flm_server(
         settings,
         _call_flm_api,
         force_restart=force_restart,
@@ -207,7 +200,7 @@ def start_flm_server(force_restart: bool = False) -> str:
 
 
 def stop_flm_server(force: bool = False) -> bool:
-    settings = ffp_flm_server.FlmServerSettings(
+    settings = flm_server.FlmServerSettings(
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
@@ -218,9 +211,8 @@ def stop_flm_server(force: bool = False) -> bool:
         log_file=SERVER_LOG_FILE,
         pid_path=PID_PATH,
         logs_dir=_paths.LOGS_DIR,
-        no_window=_NO_WINDOW,
     )
-    return ffp_flm_server.stop_flm_server(settings, force=force)
+    return flm_server.stop_flm_server(settings, force=force)
 
 
 def get_current_performance_mode() -> str:
@@ -318,11 +310,11 @@ def parse_mode() -> str:
 
 
 def _split_chunks(text: str, chunk_size: int) -> list[str]:
-    return ffp_llm_client.split_chunks(text, chunk_size, ROUTING_CFG)
+    return llm_client.split_chunks(text, chunk_size, ROUTING_CFG)
 
 
 def _select_runtime(mode: str, input_text: str) -> tuple[str, int, str]:
-    runtime = ffp_llm_client.LlmRuntimeConfig(
+    runtime = llm_client.LlmRuntimeConfig(
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
@@ -331,7 +323,7 @@ def _select_runtime(mode: str, input_text: str) -> tuple[str, int, str]:
         protected_words=PROTECTED_WORDS,
         modes_cfg=CONFIG.get("modes") or {},
     )
-    return ffp_llm_client.select_runtime(runtime, mode, input_text)
+    return llm_client.select_runtime(runtime, mode, input_text)
 
 
 def _call_flm_api(
@@ -381,39 +373,39 @@ def _call_flm_api(
 
 
 def _line_reuse_ratio(input_text: str, output_text: str) -> float:
-    return ffp_llm_client.line_reuse_ratio(input_text, output_text)
+    return llm_client.line_reuse_ratio(input_text, output_text)
 
 
 def _word_set(text: str) -> set[str]:
-    return ffp_llm_client.word_set(text)
+    return llm_client.word_set(text)
 
 
 def _word_overlap_ratio(a: str, b: str) -> float:
-    return ffp_llm_client.word_overlap_ratio(a, b)
+    return llm_client.word_overlap_ratio(a, b)
 
 
 def _looks_like_prompt_text(text: str) -> bool:
-    return ffp_llm_client.looks_like_prompt_text(text)
+    return llm_client.looks_like_prompt_text(text)
 
 
 def _force_prompt_shape(input_text: str) -> str:
-    return ffp_llm_client.force_prompt_shape(input_text)
+    return llm_client.force_prompt_shape(input_text)
 
 
 def _strip_prompt_scaffold_labels(text: str) -> str:
-    return ffp_llm_client.strip_prompt_scaffold_labels(text)
+    return llm_client.strip_prompt_scaffold_labels(text)
 
 
 def _dict_protect(text: str) -> tuple[str, dict[str, str]]:
-    return ffp_llm_client.dict_protect(text, PROTECTED_WORDS)
+    return llm_client.dict_protect(text, PROTECTED_WORDS)
 
 
 def _dict_restore(text: str, mapping: dict[str, str]) -> str:
-    return ffp_llm_client.dict_restore(text, mapping)
+    return llm_client.dict_restore(text, mapping)
 
 
 def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
-    runtime = ffp_llm_client.LlmRuntimeConfig(
+    runtime = llm_client.LlmRuntimeConfig(
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
@@ -422,7 +414,7 @@ def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
         protected_words=PROTECTED_WORDS,
         modes_cfg=CONFIG.get("modes") or {},
     )
-    return ffp_llm_client.call_flm(
+    return llm_client.call_flm(
         runtime,
         mode,
         input_text,
@@ -457,15 +449,15 @@ def _write_output_text(text: str) -> None:
 
 
 def compute_usage_stats() -> dict:
-    return ffp_telemetry.compute_usage_stats(HISTORY_PATH)
+    return telemetry.compute_usage_stats(HISTORY_PATH)
 
 
 def compute_dashboard_data() -> dict:
-    return ffp_telemetry.compute_dashboard_data(HISTORY_PATH)
+    return telemetry.compute_dashboard_data(HISTORY_PATH)
 
 
 def _flm_list(filter_kind: str) -> dict:
-    return ffp_flm_server.flm_list(filter_kind, FLM_MODEL, _NO_WINDOW)
+    return flm_server.flm_list(filter_kind, FLM_MODEL)
 
 
 def list_flm_models() -> dict:
@@ -490,19 +482,7 @@ def run_doctor() -> str:
             available = ",".join(models_info.get("models") or []) or "none"
             checks.append(("model_installed", f"no — wanted {FLM_MODEL}, have: {available}"))
     try:
-        ahk = subprocess.run(["where", "AutoHotkey64.exe"], capture_output=True, text=True, check=False, creationflags=_NO_WINDOW)
-        ahk_path = ahk.stdout.strip().splitlines()[0] if ahk.stdout.strip() else ""
-    except Exception:
-        ahk_path = ""
-    if not ahk_path:
-        try:
-            ahk_v2 = subprocess.run(["where", "AutoHotkey.exe"], capture_output=True, text=True, check=False, creationflags=_NO_WINDOW)
-            ahk_path = ahk_v2.stdout.strip().splitlines()[0] if ahk_v2.stdout.strip() else ""
-        except Exception:
-            ahk_path = ""
-    checks.append(("autohotkey", ahk_path or "not found in PATH"))
-    try:
-        val = subprocess.run(["flm", "validate", "--json"], capture_output=True, text=True, timeout=15, check=False, creationflags=_NO_WINDOW)
+        val = subprocess.run(["flm", "validate", "--json"], capture_output=True, text=True, timeout=15, check=False)
         if val.returncode == 0 and val.stdout.strip():
             try:
                 vdata = json.loads(val.stdout)
@@ -527,30 +507,30 @@ def run_doctor() -> str:
     return "\n".join(f"{k}: {v}" for k, v in checks)
 
 
-UPDATE_FEED_URL_DEFAULT = ffp_updater.UPDATE_FEED_URL_DEFAULT
+UPDATE_FEED_URL_DEFAULT = updater.UPDATE_FEED_URL_DEFAULT
 
 
 def _version_tuple(v: str) -> tuple[int, ...]:
-    return ffp_updater.version_tuple(v)
+    return updater.version_tuple(v)
 
 
 def check_for_update() -> dict:
     feed_url = str(((CONFIG.get("update") or {}).get("feed_url")) or UPDATE_FEED_URL_DEFAULT)
-    return ffp_updater.check_for_update(APP_VERSION, feed_url=feed_url)
+    return updater.check_for_update(APP_VERSION, feed_url=feed_url)
 
 
 def apply_update() -> str:
     feed_url = str(((CONFIG.get("update") or {}).get("feed_url")) or UPDATE_FEED_URL_DEFAULT)
-    return ffp_updater.apply_update(APP_VERSION, TOOL_DIR, feed_url=feed_url)
+    return updater.apply_update(APP_VERSION, TOOL_DIR, feed_url=feed_url)
 
 
 def _deep_merge(dst: dict, src: dict) -> None:
-    ffp_config.deep_merge(dst, src)
+    config.deep_merge(dst, src)
 
 
 def apply_config_patch(patch: dict) -> str:
     """Merge a whitelisted config patch, validate model changes, refresh runtime."""
-    filtered = ffp_config.filter_config_patch(patch)
+    filtered = config.filter_config_patch(patch)
     if not filtered:
         return "ok"
 
@@ -729,7 +709,7 @@ def handle_server_cli() -> bool:
             fidx = args.index("--file")
             if fidx + 1 >= len(args):
                 raise RuntimeError("Missing value for --file.")
-            patch_path = ffp_config.validate_patch_file(Path(args[fidx + 1]))
+            patch_path = config.validate_patch_file(Path(args[fidx + 1]))
             patch = json.loads(patch_path.read_text(encoding="utf-8"))
             print(apply_config_patch(patch))
             return True
@@ -750,7 +730,7 @@ def handle_server_cli() -> bool:
                 raise RuntimeError("Model name is empty.")
             try:
                 result = subprocess.run(["flm", "remove", model_name],
-                                        capture_output=True, text=True, timeout=60, check=False, creationflags=_NO_WINDOW)
+                                        capture_output=True, text=True, timeout=60, check=False)
             except FileNotFoundError:
                 raise RuntimeError("flm CLI not found in PATH.")
             output = (result.stdout or "") + (result.stderr or "")
@@ -781,9 +761,8 @@ def handle_server_cli() -> bool:
                     ["flm", "pull", model_name],
                     capture_output=True,
                     text=True,
-                    timeout=ffp_actions.PULL_MODEL_TIMEOUT_SECONDS,
+                    timeout=actions.PULL_MODEL_TIMEOUT_SECONDS,
                     check=False,
-                    creationflags=_NO_WINDOW,
                 )
             except FileNotFoundError:
                 raise RuntimeError("flm CLI not found in PATH.")

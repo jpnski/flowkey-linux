@@ -20,7 +20,7 @@ import json
 import logging
 import urllib.request
 
-log = logging.getLogger("ffp.tools")
+log = logging.getLogger("flowkey.tools")
 
 DEFAULT_BASE_URL = "http://127.0.0.1:52625"
 DEFAULT_MODEL = "gemma4-it:e4b"

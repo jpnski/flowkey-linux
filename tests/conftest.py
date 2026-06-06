@@ -36,7 +36,7 @@ def fresh_modules(isolated_release_root: Path):
     for name in [
         "paths",
         "grammar_fix",
-        "ffp_daemon",
+        "daemon",
         "notes",
         "install",
         "first_run",

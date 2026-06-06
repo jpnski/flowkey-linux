@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-log = logging.getLogger("ffp.llm")
+log = logging.getLogger("flowkey.llm")
 
 
 @dataclass(frozen=True)

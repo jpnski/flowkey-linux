@@ -4,8 +4,11 @@ import importlib
 import json
 import sys
 
+import pytest
+
 
 def test_chat_load_config_tracks_flm_model_over_stale_chat_block(isolated_release_root):
+    pytest.importorskip("tkinter")
     config_path = isolated_release_root / "config" / "grammar_hotkey.config.json"
     config_path.write_text(
         json.dumps(

@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 
-log = logging.getLogger("ffp.telemetry")
+log = logging.getLogger("flowkey.telemetry")
 
 
 def append_history(history_path: Path, entry: dict) -> None:

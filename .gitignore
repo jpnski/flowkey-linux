@@ -1,14 +1,11 @@
 # ──────────────────────────────────────────────────────────────
-# FastFlowPrompt — source repo ignore rules
-# Goal: never commit private user data, machine state, build output,
-# bundled binaries, or caches. Source + docs + config templates only.
+# Flowkey — Linux source repo ignore rules
 # ──────────────────────────────────────────────────────────────
 
-# Private runtime data (prompt/grammar history, notes, chat threads, counters, pids)
+# Private runtime data
 data/
 
-# Live working config (personal hotkeys/paths). Regenerated on first run from
-# setup/defaults/ or the .example template — both of which ARE tracked.
+# Live working config
 config/grammar_hotkey.config.json
 
 # Machine-specific logs
@@ -20,19 +17,8 @@ logs/
 build/
 dist/
 out/
-file_version_info.txt
 scripts/.venv/
 *.egg-info/
-
-# Bundled third-party runtimes (AutoHotkey portable, FastFlowLM) — re-fetched at
-# build time by installer/build.ps1 -BundleAhk -BundleFlm. Keep the explainer README.
-vendor/*
-!vendor/README.md
-!vendor/.gitignore
-
-# Code-signing material — never commit private keys/certs
-installer/certs/*
-!installer/certs/.gitignore
 
 # Caches
 .ruff_cache/
@@ -51,8 +37,10 @@ AGENTS.md
 # Process/runtime artifacts
 *.pid
 
+# Python virtual environments
+.venv/
+venv/
+
 # OS junk
-Thumbs.db
-ehthumbs.db
 .DS_Store
-desktop.ini
+Thumbs.db

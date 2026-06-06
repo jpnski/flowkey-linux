@@ -22,7 +22,7 @@ def _read_json(url: str, method: str = "GET", body: bytes | None = None, headers
 
 @pytest.fixture
 def daemon_module(fresh_modules):
-    module = fresh_modules("ffp_daemon")
+    module = fresh_modules("daemon")
     module._shutdown_event = threading.Event()
     return module
 
@@ -319,9 +319,9 @@ def test_build_chat_ingest_payload_reads_fresh_nonce(daemon_module, tmp_path, mo
     nonce_file = tmp_path / ".chat_ingest_nonce"
     nonce_file.write_text("stale-nonce", encoding="utf-8")
 
-    first = json.loads(daemon_module._build_chat_ingest_payload("hello", "notepad.exe").decode())
+    first = json.loads(daemon_module._build_chat_ingest_payload("hello", "xterm").decode())
     assert first["nonce"] == "stale-nonce"
 
     nonce_file.write_text("fresh-nonce", encoding="utf-8")
-    second = json.loads(daemon_module._build_chat_ingest_payload("hello", "notepad.exe").decode())
+    second = json.loads(daemon_module._build_chat_ingest_payload("hello", "xterm").decode())
     assert second["nonce"] == "fresh-nonce"

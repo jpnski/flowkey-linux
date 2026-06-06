@@ -1,15 +1,14 @@
-"""Flowkey long-running HTTP action daemon.
+"""Flowkey long-running HTTP action daemon (Linux).
 
-Listens on http://127.0.0.1:52650. AHK + dashboard post JSON to /action/<name>
-and get JSON back. Imports `grammar_fix` once at startup so per-call cost is
-just IPC + the action body — typically 5–20 ms instead of the ~500 ms cold
-start of spawning `pythonw.exe` per action.
+Listens on http://127.0.0.1:52650. The dashboard and listener post JSON to
+/action/<name> and get JSON back. Imports `grammar_fix` once at startup so
+per-call cost is just IPC + the action body — typically 5–20 ms.
 
 Lifecycle:
 - Bound port = single-instance lock. Second launch exits with code 0 if a
   prior daemon is already healthy.
-- `--parent-pid N` makes the daemon exit when its parent (the AHK process)
-  exits. Without it, the daemon runs until killed.
+- `--parent-pid N` makes the daemon exit when its parent process exits.
+  Without it, the daemon runs until killed.
 - Logs to the runtime logs directory resolved by `paths.LOGS_DIR`.
 
 Stdlib only. No external dependencies.
@@ -41,22 +40,13 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import ffp_config  # noqa: E402
-import ffp_notify  # noqa: E402
+import config  # noqa: E402
+import notify  # noqa: E402
 import grammar_fix  # noqa: E402
-
-# Subprocess creation flag: hides console window of console-mode children
-# (tasklist, taskkill, netstat, flm, powershell). Without this, even when
-# spawned from pythonw.exe, console children can briefly flash a window on
-# some Windows builds. Zero on non-Windows for safety.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """Wrapper around subprocess.run that logs every spawn at INFO level so
-    we can correlate visible flashes / latency spikes to specific commands.
-    Always passes CREATE_NO_WINDOW unless overridden."""
-    kwargs.setdefault("creationflags", _NO_WINDOW)
+    """Wrapper around subprocess.run that logs every spawn at INFO level."""
     kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
     kwargs.setdefault("check", False)
@@ -77,7 +67,6 @@ def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedP
 
 def _popen_logged(name: str, argv: list[str], **kwargs) -> subprocess.Popen:
     """Start a long-lived child without waiting for it to exit."""
-    kwargs.setdefault("creationflags", _NO_WINDOW)
     kwargs.setdefault("stdin", subprocess.DEVNULL)
     kwargs.setdefault("stdout", subprocess.DEVNULL)
     kwargs.setdefault("stderr", subprocess.DEVNULL)
@@ -90,23 +79,24 @@ def _popen_logged(name: str, argv: list[str], **kwargs) -> subprocess.Popen:
 def _chat_launch_argv() -> list[str]:
     parent_arg = ["--parent-pid", str(os.getpid())]
     if getattr(sys, "frozen", False):
-        chat_exe = Path(sys.executable).with_name("ffp-chat.exe")
-        if chat_exe.exists():
-            return [str(chat_exe), *parent_arg]
+        chat_bin = Path(sys.executable).with_name("ffp-chat")
+        if chat_bin.exists():
+            return [str(chat_bin), *parent_arg]
     return [sys.executable, str(HERE / "chat_popup.py"), *parent_arg]
+
 
 HOST = "127.0.0.1"
 DEFAULT_PORT = 52650
-# API_VERSION doubles as the required POST header value (X-FFP-API). The AHK
-# client (lib/daemon_client.ahk) sends the matching literal. CONTRACT: bump both
-# together — a daemon/client version mismatch is rejected with 403 by design.
+# API_VERSION doubles as the required POST header value (X-FFP-API). The local
+# clients send the matching literal. CONTRACT: bump both together — a daemon/client
+# version mismatch is rejected with 403 by design.
 API_VERSION = "1"
 _MAX_BODY_BYTES = 8 * 1024 * 1024  # reject oversized POST bodies (local DoS guard)
 
 _paths.ensure_dirs()
 LOG_DIR = _paths.LOGS_DIR  # centralized via paths.py
 
-log = logging.getLogger("ffp.daemon")
+log = logging.getLogger("flowkey.daemon")
 
 
 # ---------- Action dispatch ----------------------------------------------------------
@@ -129,90 +119,56 @@ def _act_status(_args: dict) -> str:
     return grammar_fix.server_status()
 
 
-# ---- Autostart toggle (HKCU Run key) ---------------------------------------
-#
-# The installer optionally writes a per-machine HKLM Run entry that fires for
-# every user on the machine. From inside the running app (which is not elevated)
-# we manage a per-user HKCU Run entry instead. End result: HKLM and HKCU stack
-# additively — disabling the HKCU one here doesn't touch the system-wide entry,
-# which has to be removed via Add/Remove Programs.
+# ---- Autostart toggle (XDG autostart .desktop file) ---------------------------
 
-_AUTOSTART_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-_AUTOSTART_VALUE_NAME = "FastFlowPrompt"
+_AUTOSTART_DESKTOP = "ffp-listener.desktop"
+_AUTOSTART_DIR = Path(os.path.expanduser("~/.config/autostart"))
 
 
-def _autostart_command_line() -> str:
-    """Build the command the Run entry should execute.
-
-    Resolves to:
-        "<APP_DIR>\\ahk\\AutoHotkey64.exe" "<APP_DIR>\\scripts\\grammarFix.ahk"
-
-    Falls back to a best-effort path if the production layout isn't present
-    (e.g. dev mode). Returns an empty string if we can't find an AHK exe.
-    """
-    from paths import APP_DIR
-    ahk = APP_DIR / "ahk" / "AutoHotkey64.exe"
-    if not ahk.exists():
-        # Dev mode: assume AHK is on PATH and just run the .ahk script.
-        ahk_fallback = "AutoHotkey64.exe"
-        script = APP_DIR / "scripts" / "grammarFix.ahk"
-        if not script.exists():
-            return ""
-        return f'"{ahk_fallback}" "{script}"'
-    script = APP_DIR / "scripts" / "grammarFix.ahk"
-    return f'"{ahk}" "{script}"'
+def _autostart_desktop_path() -> str:
+    """Path to the XDG autostart .desktop file for the listener."""
+    return str(_AUTOSTART_DIR / _AUTOSTART_DESKTOP)
 
 
 def _act_get_autostart_state(_args: dict) -> dict:
-    """Report whether HKCU autostart is registered for this user."""
-    try:
-        import winreg
-    except ImportError:
-        return {"enabled": False, "supported": False, "value": ""}
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH) as k:
-            value, _kind = winreg.QueryValueEx(k, _AUTOSTART_VALUE_NAME)
-            return {"enabled": True, "supported": True, "value": str(value)}
-    except FileNotFoundError:
-        return {"enabled": False, "supported": True, "value": ""}
-    except OSError as exc:
-        return {"enabled": False, "supported": True, "value": "", "error": str(exc)}
+    """Report whether the XDG autostart .desktop file exists."""
+    path = _autostart_desktop_path()
+    exists = os.path.isfile(path)
+    return {"enabled": exists, "supported": True, "value": path if exists else ""}
 
 
 def _act_set_autostart(args: dict) -> dict:
-    """Add or remove the HKCU Run entry for the current user.
+    """Create or remove the XDG autostart .desktop entry.
 
     args.enabled (bool) — True to add, False to remove.
     """
     enabled = bool(args.get("enabled"))
-    try:
-        import winreg
-    except ImportError:
-        return {"ok": False, "error": "winreg not available (non-Windows?)"}
+    path = _autostart_desktop_path()
 
     if enabled:
-        cmd = _autostart_command_line()
-        if not cmd:
-            return {"ok": False, "error": "Could not resolve AHK command path"}
+        desktop_content = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=Flowkey Listener\n"
+            "Comment=Flowkey global hotkey listener\n"
+            f"Exec=ffp-listener --parent-pid {os.getpid()}\n"
+            "Terminal=false\n"
+            "X-GNOME-Autostart-enabled=true\n"
+        )
         try:
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH) as k:
-                winreg.SetValueEx(k, _AUTOSTART_VALUE_NAME, 0, winreg.REG_SZ, cmd)
+            _AUTOSTART_DIR.mkdir(parents=True, exist_ok=True)
+            with open(path, "w") as f:
+                f.write(desktop_content)
+            return {"ok": True, "enabled": True, "value": path}
         except OSError as exc:
-            return {"ok": False, "error": f"Could not write Run key: {exc}"}
-        return {"ok": True, "enabled": True, "value": cmd}
+            return {"ok": False, "error": f"Could not write autostart file: {exc}"}
 
-    # Disable: delete the value if present (idempotent — missing key is fine).
+    # Disable: remove the file if present.
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _AUTOSTART_REG_PATH,
-                            0, winreg.KEY_SET_VALUE) as k:
-            try:
-                winreg.DeleteValue(k, _AUTOSTART_VALUE_NAME)
-            except FileNotFoundError:
-                pass
-    except FileNotFoundError:
-        pass
+        if os.path.isfile(path):
+            os.unlink(path)
     except OSError as exc:
-        return {"ok": False, "error": f"Could not remove Run key: {exc}"}
+        return {"ok": False, "error": f"Could not remove autostart file: {exc}"}
     return {"ok": True, "enabled": False, "value": ""}
 
 
@@ -293,9 +249,6 @@ def _act_dashboard_data(_args: dict) -> dict:
 
 
 def _act_config_snapshot(_args: dict) -> dict:
-    # Shared builder lives in grammar_fix so the subprocess-CLI fallback
-    # (`--app-action config_snapshot`) returns the exact same dict. See
-    # grammar_fix.build_config_snapshot().
     return grammar_fix.build_config_snapshot()
 
 
@@ -316,10 +269,10 @@ def _act_pull_model(args: dict) -> str:
     if not name:
         raise ValueError("pull_model requires args.value")
     try:
-        import ffp_actions
+        import actions
         result = _spawn_logged(
             "flm.pull", ["flm", "pull", name],
-            timeout=ffp_actions.PULL_MODEL_TIMEOUT_SECONDS,
+            timeout=actions.PULL_MODEL_TIMEOUT_SECONDS,
         )
     except FileNotFoundError:
         raise RuntimeError("flm CLI not found in PATH")
@@ -346,12 +299,11 @@ def _act_remove_model(args: dict) -> str:
 def _act_apply_config_patch(args: dict) -> str:
     patch = args.get("patch")
     if patch is None:
-        # Backward-compat: AHK may send {file: "..."} pointing at a tmp file.
         file_arg = args.get("file")
         if not file_arg:
             raise ValueError("apply_config_patch requires args.patch (dict) or args.file (path)")
         patch = json.loads(
-            ffp_config.validate_patch_file(Path(file_arg)).read_text(encoding="utf-8")
+            config.validate_patch_file(Path(file_arg)).read_text(encoding="utf-8")
         )
     if not isinstance(patch, dict):
         raise ValueError("patch must be a JSON object")
@@ -377,10 +329,9 @@ def _act_update_apply(_args: dict) -> str:
 def _act_flm_update_check(args: dict) -> dict:
     """Compare the installed FastFlowLM (flm) version with the latest GitHub
     release. Cached ~24h in data/; args.force bypasses the cache."""
-    import ffp_flm_server
+    import flm_server
     cache = _paths.DATA_DIR / "flm_update_cache.json"
-    return ffp_flm_server.check_flm_update(
-        _NO_WINDOW,
+    return flm_server.check_flm_update(
         cache_path=cache,
         force=bool(args.get("force")),
         cache_only=bool(args.get("cache_only")),
@@ -388,36 +339,33 @@ def _act_flm_update_check(args: dict) -> dict:
 
 
 def _act_bench_start(args: dict) -> dict:
-    """Kick off `flm bench <model>` on a background thread (10-20 min). The
-    serve server is stopped for the run and restarted after. Returns at once."""
-    import ffp_benchmark
-    import ffp_flm_server
+    """Kick off `flm bench <model>` on a background thread (10-20 min)."""
+    import benchmark
+    import flm_server
     model = str(args.get("model") or args.get("value") or "").strip()
     if not model:
         return {"ok": False, "error": "bench_start requires args.model"}
-    return ffp_benchmark.start_benchmark(
+    return benchmark.start_benchmark(
         model,
-        _NO_WINDOW,
         _paths.DATA_DIR / "benchmarks",
-        flm_version=ffp_flm_server.flm_version(_NO_WINDOW),
+        flm_version=flm_server.flm_version(),
         stop_serve=lambda: grammar_fix.stop_flm_server(force=True),
         start_serve=lambda: grammar_fix.start_flm_server(force_restart=False),
     )
 
 
 def _act_pull_start(args: dict) -> dict:
-    """Start an async `flm pull <model>` on a background thread (non-blocking).
-    Poll `pull_status` for progress. args.model (str)."""
-    import ffp_pull
+    """Start an async `flm pull <model>` on a background thread (non-blocking)."""
+    import pull
     model = str(args.get("model") or args.get("value") or "").strip()
     if not model:
         return {"ok": False, "error": "pull_start requires args.model"}
-    return ffp_pull.start_pull(model, _NO_WINDOW)
+    return pull.start_pull(model)
 
 
 def _act_pull_status(_args: dict) -> dict:
-    import ffp_pull
-    return ffp_pull.status()
+    import pull
+    return pull.status()
 
 
 def _act_note_search(args: dict) -> dict:
@@ -432,28 +380,27 @@ def _act_note_search(args: dict) -> dict:
 
 
 def _act_bench_status(_args: dict) -> dict:
-    import ffp_benchmark
-    return ffp_benchmark.status()
+    import benchmark
+    return benchmark.status()
 
 
 def _act_bench_history(_args: dict) -> dict:
-    import ffp_benchmark
-    return ffp_benchmark.history(_paths.DATA_DIR / "benchmarks")
+    import benchmark
+    return benchmark.history(_paths.DATA_DIR / "benchmarks")
 
 
 def _xml_escape(s: str) -> str:
-    """Backward-compat alias for tests; implementation lives in ffp_notify."""
-    return ffp_notify.xml_escape(s)
+    """Backward-compat alias for tests; implementation lives in notify."""
+    return notify.xml_escape(s)
 
 
 def _show_toast_async(title: str, message: str) -> None:
-    ffp_notify.show_toast_async(title, message)
+    notify.show_toast_async(title, message)
 
 
 def _act_save_note(args: dict) -> dict:
-    """Capture a note. Returns {note_id, path, is_url_only}. Categorization
-    runs in a background thread; a follow-up toast surfaces the final category."""
-    import notes  # imported here so daemon startup doesn't pay this cost
+    """Capture a note. Returns {note_id, path, is_url_only}."""
+    import notes
     text = str(args.get("text") or "")
     source_app = str(args.get("source_app") or "")
     url = str(args.get("url") or "")
@@ -470,7 +417,7 @@ def _act_notify(args: dict) -> str:
 
 
 def _act_open_dashboard(_args: dict) -> str:
-    """Signal the AHK front-end to open the dashboard (marker file)."""
+    """Signal the front-end to open the dashboard (marker file)."""
     try:
         _paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
         _paths.MARKER_OPEN_DASHBOARD.write_text("1\n", encoding="utf-8")
@@ -481,7 +428,6 @@ def _act_open_dashboard(_args: dict) -> str:
 
 
 def _act_shutdown(_args: dict) -> str:
-    # The thread that handles this returns first; main thread sees the flag.
     threading.Timer(0.05, lambda: _shutdown_event.set()).start()
     return "shutting_down"
 
@@ -498,7 +444,6 @@ def _read_chat_ingest_nonce() -> str:
 
 
 def _build_chat_ingest_payload(text: str, source_app: str) -> bytes:
-    """Build an ingest wire message; nonce is read fresh on every call."""
     return json.dumps({
         "type": "ingest",
         "text": text,
@@ -543,7 +488,7 @@ def _act_chat_send_selection(args: dict) -> dict:
     if not text:
         return {"ok": False, "error": "empty selection"}
 
-    chat_port = 52640  # single_instance_port; matches grammar_hotkey.config.example.json
+    chat_port = 52640  # single_instance_port
 
     def _try_send() -> bytes | None:
         payload = _build_chat_ingest_payload(text, source_app)
@@ -645,7 +590,6 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"FlowkeyDaemon/{API_VERSION}"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Route access log through our logger instead of stderr.
         log.info("HTTP %s", fmt % args)
 
     def _send_json(self, status: int, body: dict) -> None:
@@ -671,11 +615,6 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": f"GET {self.path} not found"})
 
     def do_POST(self) -> None:  # noqa: N802
-        # CSRF / cross-origin defense: require our custom header. A browser cannot
-        # set a custom header on a cross-origin request without a CORS preflight,
-        # which this daemon never answers permissively — so a malicious web page
-        # the user visits cannot trigger state-changing actions on localhost. The
-        # AHK client always sends it. Localhost-only bind already blocks the LAN.
         if self.headers.get("X-FFP-API") != API_VERSION:
             self._send_json(403, _err("missing or invalid X-FFP-API header", 0.0))
             return
@@ -698,16 +637,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         raw_body = self.rfile.read(length) if length > 0 else b""
         try:
-            if raw_body.startswith(b"\xef\xbb\xbf"):  # UTF-8 BOM (some HTTP clients add it)
+            if raw_body.startswith(b"\xef\xbb\xbf"):  # UTF-8 BOM
                 raw_body = raw_body[3:]
-            # strict=False tolerates raw C0 control chars (e.g. a TAB in a text
-            # selection) so a client that under-escapes its JSON body can't 400
-            # an otherwise-valid action. AHK EscapeJson() escapes them too; this
-            # is the backstop. See SPEC B10 / V29.
             payload = json.loads(raw_body.decode("utf-8"), strict=False) if raw_body else {}
         except UnicodeDecodeError as e:
-            # Body bytes aren't UTF-8 — almost always a charset-encoding mismatch
-            # in the client. Log the first 80 bytes so we can diagnose.
             log.warning("action=%s utf8_decode_failed bytes=%r", action_name, raw_body[:80])
             self._send_json(400, _err(f"body not UTF-8: {e}", 0.0))
             return
@@ -757,71 +690,26 @@ def _is_port_taken(port: int) -> bool:
 def _watch_parent(parent_pid: int) -> None:
     """Exit the daemon when the parent process disappears.
 
-    Implementation: open a handle to the parent process via ctypes and wait
-    on it (via WaitForSingleObject). When the parent exits the handle signals
-    immediately — no polling, no subprocess flash. Falls back to a polled
-    tasklist on systems where the WinAPI path fails.
+    Polls /proc/<parent_pid>/status every 5s. When the parent exits the
+    proc entry disappears and the daemon shuts itself down.
     """
-    log.info("watching parent PID %d", parent_pid)
-
-    # --- Preferred path: WinAPI handle + WaitForSingleObject ---
-    try:
-        import ctypes
-        from ctypes import wintypes
-        PROCESS_SYNCHRONIZE = 0x00100000
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        OpenProcess = kernel32.OpenProcess
-        OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        OpenProcess.restype = wintypes.HANDLE
-        WaitForSingleObject = kernel32.WaitForSingleObject
-        WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-        WaitForSingleObject.restype = wintypes.DWORD
-        CloseHandle = kernel32.CloseHandle
-        CloseHandle.argtypes = [wintypes.HANDLE]
-
-        handle = OpenProcess(PROCESS_SYNCHRONIZE, False, parent_pid)
-        if handle:
-            try:
-                while not _shutdown_event.is_set():
-                    # 5-second timeout lets us re-check the shutdown event.
-                    rc = WaitForSingleObject(handle, 5000)
-                    if rc == 0:  # WAIT_OBJECT_0 → parent exited
-                        log.info("parent PID %d signaled exit", parent_pid)
-                        _shutdown_event.set()
-                        return
-                    # rc == 258 (WAIT_TIMEOUT) → keep waiting
-            finally:
-                CloseHandle(handle)
-            return
-    except Exception as e:
-        log.warning("WinAPI parent-watch unavailable, falling back to polling: %s", e)
-
-    # --- Fallback: tasklist polling (silenced via CREATE_NO_WINDOW) ---
+    log.info("watching parent PID %d via /proc", parent_pid)
     while not _shutdown_event.is_set():
-        try:
-            result = _spawn_logged(
-                "tasklist.parent_watch",
-                ["tasklist", "/FI", f"PID eq {parent_pid}"],
-                timeout=5,
-            )
-            if str(parent_pid) not in (result.stdout or ""):
-                log.info("parent PID %d gone, requesting shutdown", parent_pid)
-                _shutdown_event.set()
-                return
-        except Exception as e:
-            log.debug("parent watch poll failed: %s", e)
         _shutdown_event.wait(5.0)
+        if _shutdown_event.is_set():
+            return
+        if not os.path.exists(f"/proc/{parent_pid}/status"):
+            log.info("parent PID %d gone, requesting shutdown", parent_pid)
+            _shutdown_event.set()
+            return
 
 
 def _setup_logging(log_level: str) -> None:
     level = getattr(logging, log_level.upper(), logging.INFO)
 
-    # Configure the shared "ffp" parent logger so every module logger
-    # (ffp.daemon, ffp.flmserver, ffp.benchmark, ffp.pull, ffp.llm, …) propagates
-    # to these handlers and lands in the same daemon log file.
     parent = logging.getLogger("ffp")
     parent.setLevel(level)
-    if parent.handlers:  # idempotent — avoid duplicate handlers on re-entry
+    if parent.handlers:
         return
 
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -833,7 +721,6 @@ def _setup_logging(log_level: str) -> None:
     file_handler.setFormatter(fmt)
     parent.addHandler(file_handler)
 
-    # Also log to stderr when run from a terminal (helps during dev).
     if sys.stderr and sys.stderr.isatty():
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(fmt)

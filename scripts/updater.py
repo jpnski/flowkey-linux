@@ -12,7 +12,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-log = logging.getLogger("ffp.updater")
+log = logging.getLogger("flowkey.updater")
 
 UPDATE_FEED_URL_DEFAULT = os.environ.get("FFP_UPDATE_FEED_URL", "")
 

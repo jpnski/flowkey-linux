@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import paths as _paths
 
-log = logging.getLogger("ffp.config")
+log = logging.getLogger("flowkey.config")
 
 _config_lock = threading.Lock()
 

@@ -1,10 +1,8 @@
-"""Async `flm pull <model>` with progress, so the dashboard never freezes.
+"""Async `flm pull <model>` with progress (Linux).
 
-The previous flow called the synchronous `pull_model` action, which blocked the
-single-threaded AHK GUI for the whole download (up to 900s). This runs the pull
-on a daemon background thread, parses the latest percentage from `flm pull`'s
-streamed stdout, and exposes it via status() for the dashboard to poll. Single
-slot — one pull at a time (mirrors ffp_benchmark). See SPEC V39.
+Runs the pull on a daemon background thread, parses the latest percentage
+from `flm pull`'s streamed stdout, and exposes it via status() for the
+dashboard to poll. Single slot — one pull at a time.
 """
 
 from __future__ import annotations
@@ -16,9 +14,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from subprocess_util import NO_WINDOW
-
-log = logging.getLogger("ffp.pull")
+log = logging.getLogger("flowkey.pull")
 
 _lock = threading.Lock()
 _job: dict = {
@@ -44,7 +40,7 @@ def status() -> dict:
         return dict(_job)
 
 
-def _default_runner(model: str, no_window: int, on_line: Callable[[str], None]) -> int:
+def _default_runner(model: str, on_line: Callable[[str], None]) -> int:
     proc = subprocess.Popen(
         ["flm", "pull", model],
         stdout=subprocess.PIPE,
@@ -52,17 +48,16 @@ def _default_runner(model: str, no_window: int, on_line: Callable[[str], None]) 
         text=True,
         encoding="utf-8",
         errors="replace",
-        creationflags=no_window,
     )
     assert proc.stdout is not None
-    for line in proc.stdout:  # text mode → \r and \r\n both split, so progress updates arrive
+    for line in proc.stdout:
         on_line(line)
     proc.wait()
     return proc.returncode
 
 
-def start_pull(model: str, no_window: int = NO_WINDOW, *,
-               runner: Callable[[str, int, Callable[[str], None]], int] | None = None) -> dict:
+def start_pull(model: str, *,
+               runner: Callable[[str, Callable[[str], None]], int] | None = None) -> dict:
     """Launch `flm pull <model>` on a background thread. Returns immediately;
     poll status(). Refuses a second concurrent pull."""
     global _thread
@@ -83,7 +78,7 @@ def start_pull(model: str, no_window: int = NO_WINDOW, *,
             try:
                 upd["percent"] = max(0.0, min(100.0, float(matches[-1])))
             except ValueError:
-                pass  # regex guarantees a numeric match; defensive only
+                pass
         stripped = line.strip()
         if stripped:
             upd["message"] = stripped[:160]
@@ -92,7 +87,7 @@ def start_pull(model: str, no_window: int = NO_WINDOW, *,
 
     def worker() -> None:
         try:
-            rc = run(model, no_window, on_line)
+            rc = run(model, on_line)
             if rc == 0:
                 _update(state="done", percent=100.0, message=f"{model} downloaded.", finished_at=time.time())
             else:

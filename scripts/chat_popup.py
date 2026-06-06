@@ -19,10 +19,10 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import queue
 import secrets
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -32,12 +32,11 @@ import urllib.request
 import uuid
 from tkinter import scrolledtext, ttk
 
-import ffp_config
+import config
 import loopback_http
 import paths as _paths
-from subprocess_util import NO_WINDOW
 
-log = logging.getLogger("ffp.chat")
+log = logging.getLogger("flowkey.chat")
 
 SHARED_CONFIG_PATH = _paths.CONFIG_FILE
 DAEMON_BASE_URL = "http://127.0.0.1:52650"
@@ -98,7 +97,7 @@ def load_config() -> dict:
         shared.get("flm_base_url") or cfg.get("llm_base_url") or DEFAULTS["llm_base_url"]
     ).strip()
     try:
-        cfg["llm_base_url"] = ffp_config.validate_flm_base_url(raw_url)
+        cfg["llm_base_url"] = config.validate_flm_base_url(raw_url)
     except ValueError as exc:
         log.warning("invalid chat llm_base_url, using default: %s", exc)
         cfg["llm_base_url"] = DEFAULTS["llm_base_url"]
@@ -121,7 +120,7 @@ def _overlay_live_flm_settings(cfg: dict) -> dict:
             if model:
                 cfg["llm_model"] = model
             if url:
-                cfg["llm_base_url"] = ffp_config.validate_flm_base_url(url)
+                cfg["llm_base_url"] = config.validate_flm_base_url(url)
     except Exception as exc:
         log.debug("daemon config_snapshot unavailable, using file config: %s", exc)
     return cfg
@@ -796,19 +795,14 @@ class ChatApp:
 
 
 def _is_pid_alive(pid: int) -> bool:
+    """Check if a PID is alive via os.kill(pid, 0)."""
     if pid <= 0:
         return False
     try:
-        result = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            creationflags=NO_WINDOW,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+        os.kill(pid, 0)
+        return True
+    except OSError:
         return False
-    return str(pid) in ((result.stdout or "") + (result.stderr or ""))
 
 
 def _watch_parent_pid(parent_pid: int, app: ChatApp) -> None:

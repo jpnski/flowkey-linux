@@ -1,3 +1,5 @@
+"""Tests for paths.py (Linux-only)."""
+
 from __future__ import annotations
 
 import importlib
@@ -20,17 +22,27 @@ def test_paths_prefers_env_override(monkeypatch, tmp_path: Path):
     assert paths.CONFIG_DIR == custom / "config"
 
 
-def test_paths_uses_localappdata_when_not_release_layout(monkeypatch):
+def test_paths_uses_xdg_data_home_when_not_release_layout(monkeypatch):
     monkeypatch.delenv("FFP_RELEASE_ROOT", raising=False)
-    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\Test\AppData\Local")
+    monkeypatch.setenv("XDG_DATA_HOME", "/home/user/.local/share")
 
     paths = _reload_paths()
-    # v1.4.0 renamed the helper from _looks_like_release_root to _looks_like_dev_root.
     monkeypatch.setattr(paths, "_looks_like_dev_root", lambda path: False)
-    monkeypatch.setattr(paths, "_is_under_program_files", lambda path: False)
+    monkeypatch.setattr(paths, "_is_under_prefix", lambda path: False)
 
-    # user-local mode collapses APP_DIR onto LOCALAPPDATA root.
-    assert paths._user_local_root() == Path(r"C:\Users\Test\AppData\Local\FastFlowPrompt")
+    # user-local mode collapses APP_DIR onto XDG_DATA_HOME root.
+    assert paths._user_local_root() == Path("/home/user/.local/share/FastFlowPrompt")
+
+
+def test_user_local_root_falls_back_to_home_dot_local(monkeypatch):
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("HOME", "/home/testuser")
+
+    paths = _reload_paths()
+    monkeypatch.setattr(paths, "_looks_like_dev_root", lambda path: False)
+    monkeypatch.setattr(paths, "_is_under_prefix", lambda path: False)
+
+    assert paths._user_local_root() == Path("/home/testuser/.local/share/FastFlowPrompt")
 
 
 def test_ensure_dirs_creates_runtime_folders(monkeypatch, tmp_path: Path):

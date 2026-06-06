@@ -25,7 +25,7 @@ from pathlib import Path
 
 from subprocess_util import run_hidden
 
-log = logging.getLogger("ffp.benchmark")
+log = logging.getLogger("flowkey.benchmark")
 
 # Job state is a single shared slot — only one benchmark may run at a time.
 _lock = threading.Lock()
@@ -104,13 +104,12 @@ def parse_bench_csv(path: Path) -> list[dict]:
     return rows
 
 
-def _default_runner(model: str, work: Path, no_window: int) -> str:
+def _default_runner(model: str, work: Path) -> str:
     """Run the real `flm bench <model>` in `work` so the CSV lands there."""
     result = run_hidden(
         ["flm", "bench", model],
         cwd=str(work),
         timeout=5400,  # 90 min hard cap; large-context sweeps can be slow
-        creationflags=no_window,
         encoding="utf-8",
         errors="replace",
     )
@@ -120,12 +119,12 @@ def _default_runner(model: str, work: Path, no_window: int) -> str:
     return result.stdout or ""
 
 
-def _run(model: str, no_window: int, bench_root: Path, flm_version: str,
-         runner: Callable[[str, Path, int], str]) -> None:
+def _run(model: str, bench_root: Path, flm_version: str,
+         runner: Callable[[str, Path], str]) -> None:
     work = bench_root / f"run_{_slug(model)}_{int(time.time())}"
     work.mkdir(parents=True, exist_ok=True)
     _update(state="running", message=f"Benchmarking {model} (1k-32k x 8 iterations)…")
-    stdout = runner(model, work, no_window)
+    stdout = runner(model, work)
 
     csvs = sorted(work.glob("*.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
     if not csvs:
@@ -147,13 +146,12 @@ def _run(model: str, no_window: int, bench_root: Path, flm_version: str,
 
 def start_benchmark(
     model: str,
-    no_window: int,
     bench_root,
     *,
     flm_version: str = "",
     stop_serve: Callable[[], object] | None = None,
     start_serve: Callable[[], object] | None = None,
-    runner: Callable[[str, Path, int], str] | None = None,
+    runner: Callable[[str, Path], str] | None = None,
 ) -> dict:
     """Launch a benchmark on a background thread. The serve server is stopped
     for the duration (NPU contention) and restarted afterward. Returns
@@ -179,7 +177,7 @@ def start_benchmark(
                     stop_serve()
                 except Exception as exc:
                     log.warning("stop_serve before benchmark failed (continuing): %s", exc)
-            _run(model, no_window, root, flm_version, run)
+            _run(model, root, flm_version, run)
         except Exception as exc:
             log.exception("benchmark run failed for %s", model)
             _update(state="error", error=str(exc), message="Benchmark failed.",

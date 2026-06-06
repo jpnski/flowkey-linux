@@ -1,11 +1,11 @@
-r"""Centralized path resolver for FastFlowPrompt.
+r"""Centralized path resolver for Flowkey (Linux-only).
 
 All other modules import path constants from here instead of constructing
 their own `Path(__file__).resolve().parent / "foo.json"` lines. That way
 moving files between folders (config/, data/, logs/, setup/) only requires
 editing this file.
 
-Three install modes are supported and auto-detected:
+Three install modes are auto-detected:
 
 1. **dev** — running from the source tree.
 
@@ -16,31 +16,26 @@ Three install modes are supported and auto-detected:
        ├── logs/      ← daemon.log, flm_server.log
        └── setup/     ← install entry points
 
-   APP_DIR = CONFIG_DIR's parent = the project root.
+   APP_DIR = USER_ROOT = the project root (single tree).
 
-2. **production** — Inno Setup per-machine install.
+2. **production** — system-wide pip install under /usr, /usr/local, /opt.
 
-       C:\Program Files\FastFlowPrompt\        (read-only APP_DIR)
-       ├── scripts\
-       ├── ahk\
-       └── setup\
-
-       %LOCALAPPDATA%\FastFlowPrompt\          (per-user, writable)
+       /usr/local/lib/python3.X/site-packages/scripts/  (read-only APP_DIR)
+       ~/.local/share/FastFlowPrompt/                   (per-user, writable)
        ├── config\
        ├── data\
        └── logs\
 
-   APP_DIR is read-only (admin-installed). User-mutable state lives under
-   %LOCALAPPDATA% so each Windows user gets their own config, notes, and logs.
+   APP_DIR is read-only (system-owned). User-mutable state lives under
+   XDG_DATA_HOME, so each Linux user gets their own config, notes, and logs.
 
-3. **user-local** — pip-installed wheel or any non-Program-Files layout.
+3. **user-local** — pip install --user or any non-system layout.
 
-   APP_DIR collapses to %LOCALAPPDATA%\FastFlowPrompt (the writable root)
-   and all four user dirs sit underneath it — same as dev, just rooted at
-   LOCALAPPDATA. This is the current pip-install behavior, preserved.
+   APP_DIR collapses to the user-local writable root (XDG_DATA_HOME) and all
+   four user dirs sit underneath it — same as dev, just rooted at the user dir.
 
-Override the auto-detection by setting FFP_RELEASE_ROOT in the env. That
-forces single-tree layout (mode = "dev") rooted at the given path.
+Override auto-detection by setting FFP_RELEASE_ROOT in the env. That forces
+single-tree layout (mode = "dev") rooted at the given path.
 """
 
 from __future__ import annotations
@@ -59,20 +54,20 @@ def _looks_like_dev_root(path: Path) -> bool:
     return (path / "config").exists() and (path / "scripts").exists()
 
 
-def _is_under_program_files(path: Path) -> bool:
-    """True if `path` lives under either Program Files hive."""
-    candidates = []
-    for env in ("ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
-        v = os.environ.get(env)
-        if v:
-            candidates.append(Path(v).resolve())
+def _is_under_prefix(path: Path) -> bool:
+    """True if `path` lives under a system-wide install prefix (/usr, /usr/local, /opt)."""
+    candidates = [
+        Path("/usr"),
+        Path("/usr/local"),
+        Path("/opt"),
+    ]
     try:
         resolved = path.resolve()
     except OSError:
         return False
-    for pf in candidates:
+    for prefix in candidates:
         try:
-            resolved.relative_to(pf)
+            resolved.relative_to(prefix)
             return True
         except ValueError:
             continue
@@ -80,10 +75,16 @@ def _is_under_program_files(path: Path) -> bool:
 
 
 def _user_local_root() -> Path:
-    """%LOCALAPPDATA%\\FastFlowPrompt — fallback for both user-local and production user dirs."""
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if local_appdata:
-        return (Path(local_appdata) / "FastFlowPrompt").resolve()
+    """User-local writable root for runtime state.
+
+    Uses $XDG_DATA_HOME/FastFlowPrompt, falling back to ~/.local/share/FastFlowPrompt.
+    """
+    xdg_data = os.environ.get("XDG_DATA_HOME")
+    if xdg_data:
+        return (Path(xdg_data) / "FastFlowPrompt").resolve()
+    home = os.path.expanduser("~")
+    if home:
+        return (Path(home) / ".local" / "share" / "FastFlowPrompt").resolve()
     return SCRIPTS_DIR.parent  # last-ditch fallback
 
 
@@ -95,10 +96,10 @@ def _detect_mode() -> str:
     # In-repo run -> dev.
     if _looks_like_dev_root(SCRIPTS_DIR.parent):
         return "dev"
-    # Installed under Program Files -> production split layout.
-    if _is_under_program_files(SCRIPTS_DIR):
+    # Installed under a system prefix -> production split layout.
+    if _is_under_prefix(SCRIPTS_DIR):
         return "production"
-    # Anything else (pip install, frozen exe in user dir) -> user-local.
+    # Anything else (pip install --user, venv, ...) -> user-local.
     return "user-local"
 
 
@@ -113,8 +114,7 @@ def _resolve_app_dir() -> Path:
     if INSTALL_MODE == "dev":
         return SCRIPTS_DIR.parent
     if INSTALL_MODE == "production":
-        # APP_DIR is the parent of scripts/ under Program Files
-        # (e.g. C:\Program Files\FastFlowPrompt\).
+        # APP_DIR is the parent of scripts/ under the system prefix.
         return SCRIPTS_DIR.parent
     # user-local: collapse APP_DIR onto the writable root
     return _user_local_root()
@@ -124,7 +124,7 @@ def _resolve_user_root() -> Path:
     """Where user-mutable state (config/data/logs) lives."""
     if INSTALL_MODE == "dev":
         return APP_DIR  # single tree
-    return _user_local_root()  # production + user-local both point to LOCALAPPDATA
+    return _user_local_root()  # production + user-local both point to XDG_DATA_HOME
 
 
 APP_DIR: Path = _resolve_app_dir()
@@ -132,7 +132,7 @@ USER_ROOT: Path = _resolve_user_root()
 
 # Back-compat alias: pre-v1.4.0 code reads RELEASE_ROOT.
 # In dev/user-local it equals APP_DIR (which equals USER_ROOT). In production
-# it equals APP_DIR (Program Files) — callers that want writable state must
+# it equals APP_DIR (system prefix) — callers that want writable state must
 # use USER_ROOT or the named *_DIR exports below.
 RELEASE_ROOT: Path = APP_DIR
 
@@ -227,7 +227,7 @@ def migrate_legacy_layout() -> list[str]:
     overwrite newer data). Returns a list of human-readable lines describing
     what moved, suitable for logging.
 
-    In production mode the legacy scripts/ dir is read-only (Program Files),
+    In production mode the legacy scripts/ dir is read-only (system prefix),
     so any moves there will fail silently and the daemon just runs without
     migrated state — which is the right outcome for a fresh install.
     """

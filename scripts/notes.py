@@ -41,7 +41,7 @@ from typing import Any
 
 import grammar_fix
 
-log = logging.getLogger("ffp.notes")
+log = logging.getLogger("flowkey.notes")
 
 DEFAULT_CATEGORIES = [
     "work/technical",
@@ -635,7 +635,7 @@ def _read_frontmatter_field(path: Path, key: str) -> str:
 def _toast(title: str, message: str) -> None:
     """Fire-and-forget toast via shared notify module."""
     try:
-        import ffp_notify
-        ffp_notify.show_toast_async(title, message)
+        import notify
+        notify.show_toast_async(title, message)
     except Exception as exc:
         log.warning("toast failed: %s", exc)

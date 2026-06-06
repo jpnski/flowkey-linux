@@ -1,19 +1,15 @@
-"""First-run wizard for Flowkey.
+"""First-run wizard for Flowkey (Linux).
 
-Six pages walk a new user from a fresh install to a working setup:
+Five pages walk a new user from a fresh install to a working setup:
 
-  1. Welcome + AMD Ryzen AI NPU detection
+  1. Welcome
   2. License accept
   3. Pick a FastFlowLM model and pull it (HuggingFace download)
   4. Preview / rebind the four hotkeys
   5. Warmup test action (smoke-test the LLM pipeline)
   6. Done — open the dashboard
 
-Launched in three ways:
-
-  - by Inno Setup at the end of install ([Run] postinstall)
-  - by grammarFix.ahk on startup when `.first_run_done` is missing
-  - manually by the user (Settings → Re-run first-run wizard)
+Launched by the user via the tray/dashboard Settings menu.
 
 On finish, writes paths.MARKER_FIRST_RUN_DONE so subsequent launches skip
 the wizard. Stdlib only.
@@ -31,11 +27,11 @@ import tkinter as tk
 import urllib.error
 from tkinter import messagebox, scrolledtext, ttk
 
-import ffp_config
+import config
 import paths as _paths
 from loopback_http import daemon_headers, json_get, json_post
 
-log = logging.getLogger("ffp.first_run")
+log = logging.getLogger("flowkey.first_run")
 
 # ---------------------------------------------------------------------------
 # Config + paths
@@ -70,45 +66,34 @@ HOTKEY_FIELDS = [
 # ---------------------------------------------------------------------------
 
 def ensure_config() -> dict:
-    return ffp_config.load_config(CONFIG_PATH)
+    return config.load_config(CONFIG_PATH)
 
 
 def save_config(cfg: dict) -> None:
-    ffp_config.save_config(CONFIG_PATH, cfg)
+    config.save_config(CONFIG_PATH, cfg)
 
 
-def detect_amd_npu() -> tuple[bool, str]:
-    """Probe Windows for an AMD Ryzen AI NPU driver. Returns (found, description).
-
-    Uses Get-PnpDevice via PowerShell — slow but deterministic. We look for
-    devices whose FriendlyName contains 'NPU' AND ManufacturerName contains
-    'AMD'. False negatives are OK (we just warn, don't block).
-    """
-    ps = (
-        "Get-PnpDevice -Status OK | "
-        "Where-Object { $_.FriendlyName -match 'NPU|XDNA|Ryzen AI' } | "
-        "Select-Object -First 3 FriendlyName, Manufacturer | ConvertTo-Json -Compress"
-    )
+def check_npu_compat() -> tuple[bool, str]:
+    """Check NPU compatibility. On Linux, delegates to `flm validate`."""
     try:
         result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, text=True, timeout=10, check=False,
+            ["flm", "validate", "--json"],
+            capture_output=True, text=True, timeout=15, check=False,
         )
+    except FileNotFoundError:
+        return False, "flm CLI not found in PATH (install FastFlowLM first)."
     except Exception as exc:
-        return False, f"Could not probe device list: {exc}"
-    out = (result.stdout or "").strip()
-    if not out:
-        return False, "No NPU device found. AMD Ryzen AI hardware is required."
+        return False, f"flm validate failed: {exc}"
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()[:200]
+        return False, f"flm validate: {err}"
     try:
-        data = json.loads(out)
-    except json.JSONDecodeError:
-        return False, "Device probe returned unexpected output."
-    if isinstance(data, dict):
-        data = [data]
-    if not data:
-        return False, "No NPU device found."
-    names = ", ".join(str(d.get("FriendlyName") or "?") for d in data)
-    return True, names
+        data = json.loads(result.stdout)
+    except (ValueError, json.JSONDecodeError):
+        data = {}
+    if data.get("npu_available"):
+        return True, data.get("npu_name", "NPU detected")
+    return False, data.get("npu_error", "No NPU detected by flm validate")
 
 
 def fetch_models(base_url: str) -> list[str]:
@@ -257,7 +242,7 @@ class WizardApp:
         self.btn_next = ttk.Button(bar, text="Next", command=self.on_next)
         self.btn_next.pack(side="right")
 
-    # ---- page 1: welcome + NPU check --------------------------------------
+    # ---- page 1: welcome + hardware check ---------------------------------
 
     def _page_welcome(self, parent: ttk.Frame) -> ttk.Frame:
         f = ttk.Frame(parent)
@@ -265,7 +250,7 @@ class WizardApp:
             f, wraplength=560, justify="left", foreground="#444",
             text=(
                 "Flowkey routes your selected text through a local LLM running on\n"
-                "AMD's Ryzen AI NPU. No cloud, no telemetry, no API key.\n\n"
+                "your NPU/GPU. No cloud, no telemetry, no API key.\n\n"
                 "This wizard walks you through:\n"
                 "  • Verifying your hardware\n"
                 "  • Accepting the license\n"
@@ -279,33 +264,33 @@ class WizardApp:
         sep.pack(fill="x", pady=(16, 12))
 
         ttk.Label(f, text="Hardware check", font=("Segoe UI", 11, "bold")).pack(anchor="w")
-        self.lbl_npu = ttk.Label(f, text="Probing for AMD Ryzen AI NPU...", foreground="#666",
+        self.lbl_npu = ttk.Label(f, text="Checking hardware via flm validate...", foreground="#666",
                                  wraplength=560, justify="left")
         self.lbl_npu.pack(anchor="w", pady=(4, 0))
-        ttk.Button(f, text="Recheck", command=self._run_npu_check).pack(anchor="w", pady=(10, 0))
+        ttk.Button(f, text="Recheck", command=self._run_hw_check).pack(anchor="w", pady=(10, 0))
 
         # Kick off the check async so the UI paints first.
-        self.root.after(150, self._run_npu_check)
+        self.root.after(150, self._run_hw_check)
         return f
 
-    def _run_npu_check(self) -> None:
-        self.lbl_npu.configure(text="Probing for AMD Ryzen AI NPU...", foreground="#666")
+    def _run_hw_check(self) -> None:
+        self.lbl_npu.configure(text="Checking hardware via flm validate...", foreground="#666")
         self.root.update_idletasks()
 
         def worker() -> None:
-            ok, msg = detect_amd_npu()
-            self.root.after(0, lambda: self._npu_result(ok, msg))
+            ok, msg = check_npu_compat()
+            self.root.after(0, lambda: self._hw_result(ok, msg))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _npu_result(self, ok: bool, msg: str) -> None:
+    def _hw_result(self, ok: bool, msg: str) -> None:
         self.npu_found = ok
         if ok:
-            self.lbl_npu.configure(text=f"✓ Found: {msg}", foreground="#0a6b3a")
+            self.lbl_npu.configure(text=f"✓ {msg}", foreground="#0a6b3a")
         else:
             self.lbl_npu.configure(
                 text=(f"⚠  {msg}\n\nYou can continue — FastFlowLM will surface a clearer error "
-                      "if the NPU truly isn't accessible."),
+                      "if the NPU/GPU truly isn't accessible."),
                 foreground="#a8201a",
             )
 
@@ -383,11 +368,11 @@ class WizardApp:
                 proc = subprocess.Popen(
                     ["flm", "pull", model],
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+
                 )
                 self._pull_proc = proc
             except FileNotFoundError:
-                self.root.after(0, lambda: self._append_log("ERROR: flm.exe not on PATH.\n"))
+                self.root.after(0, lambda: self._append_log("ERROR: flm not found in PATH.\n"))
                 return
             assert proc.stdout is not None
             pull_timeout_s = 3600
@@ -554,7 +539,7 @@ class WizardApp:
         """Save what we have so far. Safe to call from any page."""
         raw_url = self.var_base_url.get().strip() or DEFAULT_FLM_URL
         try:
-            self.cfg["flm_base_url"] = ffp_config.validate_flm_base_url(raw_url)
+            self.cfg["flm_base_url"] = config.validate_flm_base_url(raw_url)
         except ValueError as exc:
             log.warning("wizard ignored non-loopback flm_base_url %r: %s", raw_url, exc)
             self.cfg["flm_base_url"] = DEFAULT_FLM_URL
