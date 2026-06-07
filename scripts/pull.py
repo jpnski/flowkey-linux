@@ -18,7 +18,7 @@ log = logging.getLogger("flowkey.pull")
 
 _lock = threading.Lock()
 _job: dict = {
-    "state": "idle",       # idle | running | done | error
+    "state": "idle",       # idle | running | done | error | cancelled
     "model": "",
     "percent": 0.0,
     "message": "",
@@ -27,6 +27,7 @@ _job: dict = {
     "finished_at": 0.0,
 }
 _thread: threading.Thread | None = None
+_proc: subprocess.Popen | None = None
 _PCT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
 
 
@@ -41,6 +42,7 @@ def status() -> dict:
 
 
 def _default_runner(model: str, on_line: Callable[[str], None]) -> int:
+    global _proc
     proc = subprocess.Popen(
         ["flm", "pull", model],
         stdout=subprocess.PIPE,
@@ -49,11 +51,19 @@ def _default_runner(model: str, on_line: Callable[[str], None]) -> int:
         encoding="utf-8",
         errors="replace",
     )
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        on_line(line)
-    proc.wait()
-    return proc.returncode
+    _proc = proc
+    try:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            on_line(line)
+        proc.wait()
+        return proc.returncode
+    finally:
+        with _lock:
+            was_cancelled = _job.get("state") == "cancelled"
+        _proc = None
+        if was_cancelled:
+            return -1
 
 
 def start_pull(model: str, *,
@@ -88,17 +98,51 @@ def start_pull(model: str, *,
     def worker() -> None:
         try:
             rc = run(model, on_line)
-            if rc == 0:
-                _update(state="done", percent=100.0, message=f"{model} downloaded.", finished_at=time.time())
-            else:
-                _update(state="error", error=f"flm pull exited with code {rc}", finished_at=time.time())
         except FileNotFoundError:
             log.warning("flm CLI not found in PATH while pulling %s", model)
             _update(state="error", error="flm CLI not found in PATH", finished_at=time.time())
+            return
         except Exception as exc:
             log.exception("pull failed for %s", model)
             _update(state="error", error=str(exc), finished_at=time.time())
+            return
+        with _lock:
+            was_cancelled = _job.get("state") == "cancelled"
+        if was_cancelled:
+            _update(message=f"{model} cancelled.", finished_at=time.time())
+        elif rc == 0:
+            _update(state="done", percent=100.0, message=f"{model} downloaded.", finished_at=time.time())
+        else:
+            _update(state="error", error=f"flm pull exited with code {rc}", finished_at=time.time())
 
     _thread = threading.Thread(target=worker, name="flowkey-pull", daemon=True)
     _thread.start()
     return {"ok": True, "state": "running", "model": model}
+
+
+def cancel_pull() -> dict:
+    """Terminate the running `flm pull`, if any. Idempotent.
+
+    Sets the job state to ``cancelled`` and sends SIGTERM to the flm
+    subprocess. The worker thread detects the cancellation when the
+    stdout iterator closes and leaves the state at ``cancelled``
+    instead of clobbering it with ``error``.
+    """
+    global _proc
+    with _lock:
+        if _job["state"] != "running":
+            return {
+                "ok": False,
+                "error": "no pull in progress",
+                "state": _job["state"],
+                "model": _job["model"],
+            }
+        _job["state"] = "cancelled"
+        _job["message"] = "cancellation requested…"
+        proc = _proc
+    if proc is not None:
+        try:
+            proc.terminate()
+        except Exception as exc:
+            log.warning("terminate pull proc failed: %s", exc)
+    return {"ok": True, "state": "cancelled", "model": _job["model"]}

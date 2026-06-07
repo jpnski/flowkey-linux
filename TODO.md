@@ -10,6 +10,8 @@ This document tracks the complete Linux port of [Fastflow/Flowkey](https://githu
 
 Each item is a single self-contained change. Items are in chronological order. Items with `[x]` are done. When you complete an item, mark it `[x]` and add the date + commit hash.
 
+**Editing convention for new items (LLM instructions):** Append new items at the end of the chronological list (just before `## Development Notes`), not between earlier items. This keeps the file's chronological order stable.
+
 ---
 
 ## Phase 1 — Python Backend Port (COMPLETE)
@@ -194,23 +196,6 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 > **venv** : Set up venv at `venv/` to isolate project dependencies from system packages. **Note for installer / CI:** The `install.sh` in Phase 5 should consider whether to create a venv or install system-wide. For development, always use the venv. For production distribution, system packages may be preferred (see `install.sh` design).
 
-
-### Phase 4 follow-up — bug fixes
-
-- [x] **33a.** `MessageBubble` content invisible at runtime (2026-06-06):
-  - Root cause: `on_mount` called `update()` after layout, but content was invisible (possibly zero-height during initial layout or `$primary`/`$secondary` markup colors don't resolve in Rich's inline parser)
-  - Fix: refactored to pass formatted content to `super().__init__()` for correct initial height; replaced `_render_content()` with `_format_content()` returning string; removed `$primary`/`$secondary` from markup since theme variables aren't available in Rich markup context
-  - `update_content()` and `finalize_stream()` now call `self.update()` directly
-
-- [x] **33b.** Dashboard tabs stuck on "Loading..." + other TUI runtime errors (2026-06-06):
-  - `call_from_thread` doesn't exist in Textual 8.x — replaced with `call_later` everywhere
-  - Dashboard fetchers only rendered on success; added unconditional `call_later` + error-state rendering
-  - First load now synchronous (`_fetch_all_sync` in `on_mount`) so data appears immediately
-  - Ctrl+P crash from recursive `action_command_palette` (called itself) — removed the override, uses built-in
-  - `flowkey.http` WARNING logs muted to ERROR in TUI to prevent stderr overlap
-  - Removed `Header(show_clock=True)` — user found it unnecessary
-  - `MessageBubble` escaping only applied to user role, not assistant (was destroying `[b]`/`[i]` in HELP_TEXT)
-
 ---
 
 ## Phase 5 — Installer & Distribution
@@ -243,11 +228,6 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [x] **38.** Remove remaining Windows-only seed config duplicates in `setup/defaults/` if any are Windows-specific — vault_dir updated to Linux path
 
-- [x] **39.** Final `pytest tests/ -q` pass on Linux — **81 passed, 2 skipped** (tkinter not available in headless CI)
+- [x] **39.** Final `pytest tests/ -q` pass on Linux — **87 passed, 1 skipped** (tkinter not available in headless CI)
 
 - [x] **40.** Update `README.md` with Linux-specific install instructions, dependencies, troubleshooting, and TUI usage guide
-
----
-
-## Development Notes
-

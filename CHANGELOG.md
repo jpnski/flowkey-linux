@@ -18,14 +18,10 @@ Still under verification — see [`verification.md`](verification.md) for status
 - System `tray` indicator via `pystray` with Wayland fallback
 - CLI commands: `flowkey-daemon`, `flowkey-listener`, `flowkey-tray`, `flowkey-tui`, `flowkey-install`, `flowkey-grammar-fix`
 - `install.sh` for Debian/RPM system bootstrap; GitHub Actions CI on `ubuntu-latest`
+- Dashboard Config tab: interactive **FLM Model** panel — `Select` for the active model, `Collapsible` titled "Download a model" listing not-yet-installed models, live pull `ProgressBar` + status line + **Cancel pull** button, indeterminate `ProgressBar` + braille spinner shown while the FLM server restarts. Chat-stream guard (`ChatWidget.is_streaming()`) reverts the `Select` with a warning while a stream is in flight.
+- Daemon action `pull_cancel` to terminate an in-flight `flm pull` (idempotent; returns `{"ok": False, "error": "no pull in progress"}` when idle). TUI exposes a "Cancel pull" button that appears only while a pull is running.
 
 ### Removed
 - All Windows-specific code: AutoHotkey scripts, Inno Setup installer, PowerShell helpers, WinAPI parent-watch, Registry autostart, AMD NPU PowerShell detection, `.exe` references
-
-### Changed
-*(none yet — post-port incremental changes will be logged here)*
-
-### Fixed
-*(none yet)*
 
 > Detailed per-component porting steps are recorded in [`TODO.md`](TODO.md) (Phases 1–6).

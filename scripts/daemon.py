@@ -371,6 +371,12 @@ def _act_pull_status(_args: dict) -> dict:
     return pull.status()
 
 
+def _act_pull_cancel(_args: dict) -> dict:
+    """Terminate the running `flm pull`, if any. Idempotent."""
+    import pull
+    return pull.cancel_pull()
+
+
 def _act_note_search(args: dict) -> dict:
     """Search the notes vault. args.query (str), args.limit (int, default 5)."""
     import notes
@@ -514,6 +520,7 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
     "note_search": _act_note_search,
     "pull_start": _act_pull_start,
     "pull_status": _act_pull_status,
+    "pull_cancel": _act_pull_cancel,
     "notify": _act_notify,
     "save_note": _act_save_note,
     "chat_send_selection": _act_chat_send_selection,
@@ -554,6 +561,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-FFP-API", API_VERSION)
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_json_safely(self, status: int, body: dict) -> bool:
+        """Send JSON, swallowing client-disconnect errors. Returns True on success."""
+        try:
+            self._send_json(status, body)
+            return True
+        except (BrokenPipeError, ConnectionResetError):
+            log.info("client disconnected before response (status=%d) — discarded", status)
+            return False
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/healthz":
@@ -619,12 +635,13 @@ class Handler(BaseHTTPRequestHandler):
                 result = handler(args)
             elapsed = (time.time() - start) * 1000.0
             log.info("action=%s status=ok elapsed_ms=%.1f", action_name, elapsed)
-            self._send_json(200, _ok(result, elapsed))
+            if not self._send_json_safely(200, _ok(result, elapsed)):
+                return
         except Exception as e:
             elapsed = (time.time() - start) * 1000.0
             log.warning("action=%s status=error elapsed_ms=%.1f error=%s", action_name, elapsed, e)
             log.debug("traceback:\n%s", traceback.format_exc())
-            self._send_json(500, _err(str(e), elapsed))
+            self._send_json_safely(500, _err(str(e), elapsed))
 
 
 # ---------- Lifecycle ---------------------------------------------------------------

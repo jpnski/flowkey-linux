@@ -160,7 +160,7 @@ def start_flm_server(
 ) -> str:
     if force_restart and stop_callback is not None:
         stop_callback(True)
-    if is_flm_server_reachable(settings.base_url):
+    elif is_flm_server_reachable(settings.base_url):
         return "already_running"
 
     host, port = flm_host_port(settings.base_url)
@@ -221,7 +221,13 @@ def stop_flm_server(settings: FlmServerSettings, *, force: bool = False) -> bool
         if kill_pid(port_pid):
             killed = True
     if force and not killed and host in {"127.0.0.1", "localhost"}:
-        log.warning("force stop requested, but no Flowkey-owned FLM pid was found")
+        log.info("force stop requested, but no Flowkey-owned FLM pid was found")
+    if killed:
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if not is_flm_server_reachable(settings.base_url):
+                break
+            time.sleep(0.25)
     remove_pid(settings.pid_path)
     return killed
 
@@ -242,8 +248,43 @@ def _parse_flm_json(text: str) -> dict | None:
     return None
 
 
+_NON_CHAT_LABELS = frozenset({"embeddings"})
+_NON_CHAT_ONLY_LABEL_SETS = (frozenset({"audio", "realtime-transcription", "transcription"}),)
+_NON_CHAT_FAMILIES = frozenset({"whisper-v3"})
+_NON_CHAT_NAME_PREFIXES = ("embed-", "whisper-")
+
+
+def _is_selectable_chat_model(name: str, entry: dict | None = None) -> bool:
+    """Decide whether a model is chat-selectable (LLM, not embedding/ASR/etc.).
+
+    Primary signal: per-model metadata from `flm list --json` (the `label`
+    array and `details.family`). Fallback: name-prefix match for catalogs
+    that don't surface the metadata.
+    """
+    if not name:
+        return False
+    if isinstance(entry, dict):
+        family = str(((entry.get("details") or {})).get("family") or "").strip().lower()
+        labels = {str(lbl).strip().lower() for lbl in (entry.get("label") or [])}
+        if family and family in _NON_CHAT_FAMILIES:
+            return False
+        if labels and (labels & _NON_CHAT_LABELS):
+            return False
+        if labels and labels.issubset(_NON_CHAT_ONLY_LABEL_SETS[0]):
+            return False
+        if labels or family:
+            return True
+    prefix = name.split(":", 1)[0].strip().lower()
+    return bool(prefix) and not prefix.startswith(_NON_CHAT_NAME_PREFIXES)
+
+
 def flm_list(filter_kind: str, model: str) -> dict:
-    """Return model names via `flm list --json`, filtered by install state."""
+    """Return model names via `flm list --json`, filtered by install state.
+
+    Embedding and ASR-only models (e.g. `embed-gemma:300m`, `whisper-v3:*`)
+    are excluded by `_is_selectable_chat_model` — they are reserved for
+    side-loading and break `flm serve` when used as the main model.
+    """
     if filter_kind not in {"installed", "not-installed", "all"}:
         return {"error": f"bad filter: {filter_kind}", "models": [], "active": model}
     try:
@@ -271,6 +312,8 @@ def flm_list(filter_kind: str, model: str) -> dict:
             continue
         name = str(entry.get("model") or entry.get("name") or "").strip()
         if not name:
+            continue
+        if not _is_selectable_chat_model(name, entry):
             continue
         is_installed = bool(entry.get("installed"))
         if filter_kind == "installed" and not is_installed:

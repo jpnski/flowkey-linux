@@ -208,7 +208,7 @@ Six panels auto-refreshing every 10s:
 | `F1` | Switch to Chat tab |
 | `F2` | Switch to Dashboard tab |
 | `Ctrl+P` | Open command palette (theme browser, search, etc.) |
-| `Ctrl+Q` | Quit |
+| `Ctrl+C` | Quit (press twice) |
 
 ---
 

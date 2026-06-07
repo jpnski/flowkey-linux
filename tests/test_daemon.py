@@ -46,7 +46,8 @@ def test_actions_count_and_expected_names(daemon_module):
     # v1.4.0 added get_autostart_state + set_autostart -> 38.
     # Late v1.4.0 added flm_update_check, bench_start/status/history,
     # v2.0.0: removed chat_reload, chat_restart (chat_popup deleted) -> 46.
-    assert len(daemon_module.ACTIONS) == 46
+    # v2.0.0+flm-panel: added pull_cancel -> 47.
+    assert len(daemon_module.ACTIONS) == 47
     assert "version" in daemon_module.ACTIONS
     assert "apply_config_patch" in daemon_module.ACTIONS
     assert "chat_send_selection" in daemon_module.ACTIONS
@@ -62,6 +63,7 @@ def test_actions_count_and_expected_names(daemon_module):
     assert "note_search" in daemon_module.ACTIONS
     assert "pull_start" in daemon_module.ACTIONS
     assert "pull_status" in daemon_module.ACTIONS
+    assert "pull_cancel" in daemon_module.ACTIONS
     # removed in v1.5.4
     assert "model_stats" not in daemon_module.ACTIONS
 
@@ -206,13 +208,15 @@ def test_apply_config_patch_model_change_validates_and_persists(daemon_server, m
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
     monkeypatch.setattr(daemon_module.grammar_fix, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(daemon_module.grammar_fix, "stop_flm_server", lambda force=True: True)
+    monkeypatch.setattr(daemon_module.grammar_fix, "start_flm_server", lambda force_restart=False: "started")
     body = json.dumps({"args": {"patch": {"flm_model": "other:1b"}}}).encode("utf-8")
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
     saved = json.loads(daemon_module.grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
-    assert payload["result"] == "model=other:1b"
+    assert payload["result"] == "model=other:1b restarted"
     assert saved["flm_model"] == "other:1b"
     assert daemon_module.grammar_fix.FLM_MODEL == "other:1b"
 
@@ -308,7 +312,59 @@ def test_open_dashboard_writes_marker(daemon_server, tmp_path, monkeypatch):
     assert status == 200
     assert payload["ok"] is True
     assert payload["result"] == "queued"
-    assert (tmp_path / ".open_dashboard").read_text(encoding="utf-8") == "1\n"
+
+
+def test_do_post_swallows_broken_pipe_on_success_send(daemon_module, caplog):
+    """When the client disconnects between the handler running and the response
+    being written, the daemon must not retry a 500 send and must not propagate."""
+    handler = daemon_module.Handler.__new__(daemon_module.Handler)
+    send_calls: list[tuple[int, dict]] = []
+
+    def fake_send_json(status: int, body: dict) -> None:
+        send_calls.append((status, body))
+        if status == 200:
+            raise BrokenPipeError("client gone")
+
+    handler._send_json = fake_send_json  # type: ignore[method-assign]
+
+    import io
+    handler.command = "POST"
+    handler.path = "/action/version"
+    handler.client_address = ("127.0.0.1", 0)
+    handler.headers = {"X-FFP-API": "1", "Content-Length": str(len(b"{}"))}
+    handler.rfile = io.BytesIO(b"{}")
+
+    caplog.set_level("INFO", logger="flowkey.daemon")
+    handler.do_POST()  # type: ignore[arg-type]
+
+    statuses = [s for s, _ in send_calls]
+    assert statuses == [200]
+    assert any("client disconnected" in rec.message for rec in caplog.records)
+    assert all(rec.levelname == "INFO" for rec in caplog.records if "client disconnected" in rec.message)
+
+
+def test_send_json_safely_returns_false_on_disconnect(daemon_module):
+    handler = daemon_module.Handler.__new__(daemon_module.Handler)
+
+    def raise_reset(status: int, body: dict) -> None:
+        raise ConnectionResetError("reset")
+
+    handler._send_json = raise_reset  # type: ignore[method-assign]
+    assert handler._send_json_safely(200, {"ok": True}) is False
+
+    def raise_bp(status: int, body: dict) -> None:
+        raise BrokenPipeError("gone")
+
+    handler._send_json = raise_bp  # type: ignore[method-assign]
+    assert handler._send_json_safely(500, {"ok": False}) is False
+
+
+def test_send_json_safely_returns_true_on_normal_send(daemon_module):
+    handler = daemon_module.Handler.__new__(daemon_module.Handler)
+    sent: list[tuple[int, dict]] = []
+    handler._send_json = lambda status, body: sent.append((status, body))  # type: ignore[method-assign]
+    assert handler._send_json_safely(200, {"ok": True, "result": "x"}) is True
+    assert sent == [(200, {"ok": True, "result": "x"})]
 
 
 

@@ -10,7 +10,7 @@ Keyboard:
     F1          Chat tab
     F2          Dashboard tab
     Ctrl+P      Command palette (includes theme browser)
-    Ctrl+Q      Quit
+    Ctrl+C      Quit (press twice within 3s)
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import TabbedContent, TabPane
+from textual.widgets import Input, TabbedContent, TabPane
 
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
@@ -78,6 +78,14 @@ TabPane:focus {
 #dashboard-tabs > TabPane {
     height: 100%;
 }
+
+/* Reposition notifications from bottom-right (default) to top-right. */
+#textual-toastrack {
+    dock: top;
+    align: right top;
+    margin-bottom: 0;
+    margin-top: 1;
+}
 """
 
 
@@ -92,7 +100,7 @@ class FlowkeyScreen(Screen):
     BINDINGS = [
         Binding("f1", "switch_tab('chat')", "Chat", show=True),
         Binding("f2", "switch_tab('dashboard')", "Dashboard", show=True),
-        Binding("ctrl+q", "quit", "Quit", show=True),
+        Binding("ctrl+c", "quit", "Quit (2×)", show=True, priority=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -108,7 +116,14 @@ class FlowkeyScreen(Screen):
         tabbed.active = tab
 
     def action_quit(self) -> None:
-        self.app.exit()
+        # Opencode auth: first Ctrl+C with text in the chat input clears it;
+        # only an empty input (or non-input focus) arms the two-press quit.
+        focused = self.app.focused
+        if isinstance(focused, Input) and focused.value:
+            focused.value = ""
+            focused.cursor_position = 0
+            return
+        self.app.request_quit()
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +138,8 @@ class FlowkeyTUI(App):
     CSS = APP_CSS
     SCREENS = {"main": FlowkeyScreen}
     BINDINGS: list[Binding] = []
+    # Seconds the user has to press Ctrl+C a second time to confirm quit.
+    QUIT_PRESS_WINDOW = 3.0
 
     def __init__(self, parent_pid: int = 0, ingest_text: str = "") -> None:
         super().__init__()
@@ -130,6 +147,8 @@ class FlowkeyTUI(App):
         self._ingest_text = ingest_text
         self._shutdown_event = threading.Event()
         self._theme_ready = False  # gate: skip save for initial mount
+        self._quit_press_count: int = 0
+        self._quit_timer: threading.Timer | None = None
 
     def on_mount(self) -> None:
         # Load persisted theme from config
@@ -194,6 +213,26 @@ class FlowkeyTUI(App):
         log.info("received signal %d, exiting TUI", signum)
         self.exit()
 
+    def request_quit(self) -> None:
+        """Two-press quit: first press shows hint, second within 3s exits."""
+        self._quit_press_count += 1
+        if self._quit_press_count == 1:
+            self._quit_timer = threading.Timer(
+                self.QUIT_PRESS_WINDOW, self._reset_quit_counter
+            )
+            self._quit_timer.daemon = True
+            self._quit_timer.start()
+            self.notify("Press Ctrl+C again to exit", timeout=self.QUIT_PRESS_WINDOW)
+            return
+        self._reset_quit_counter()
+        self.exit()
+
+    def _reset_quit_counter(self) -> None:
+        self._quit_press_count = 0
+        if self._quit_timer is not None:
+            self._quit_timer.cancel()
+            self._quit_timer = None
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -246,14 +285,14 @@ def main() -> int:
         except OSError:
             pass
 
-    # Register signal handlers
+    # SIGINT is routed through Textual's Ctrl+C screen binding (two-press
+    # quit). The KeyboardInterrupt raised by any raw SIGINT is caught below.
     app = FlowkeyTUI(parent_pid=args.parent_pid, ingest_text=ingest_text)
 
     def _signal_handler(signum, frame):
         app._on_signal(signum, frame)
 
     signal.signal(signal.SIGTERM, _signal_handler)
-    signal.signal(signal.SIGINT, _signal_handler)
 
     try:
         app.run()

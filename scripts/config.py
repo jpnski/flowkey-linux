@@ -27,11 +27,13 @@ CLAUDE_PROMPT_SYSTEM_PROMPT = (
     "Preserve intent and emoji. Return only the prompt."
 )
 
+DEFAULT_CHAT_MODEL = "gemma4-it:e4b"
+
 DEFAULT_CONFIG = {
     "enabled": True,
     "theme": "textual-dark",
     "flm_base_url": "http://127.0.0.1:52625",
-    "flm_model": "gemma4-it:e4b",
+    "flm_model": DEFAULT_CHAT_MODEL,
     "flm_timeout_seconds": 60,
     "history_filename": "grammar_fix_history.jsonl",
     "history_store_text": False,

@@ -73,7 +73,7 @@ HELP_TEXT = """
 
 [i]Shortcuts:[/i]
   Ctrl+P             — Commands
-  Ctrl+Q             — Quit
+  Ctrl+C             — Quit (press twice)
 """
 
 
@@ -193,6 +193,18 @@ class ChatWidget(Container):
         self._llm_model = "gemma4-it:e4b"
         self._daemon_available = False
         self._lock = threading.Lock()
+        # Timestamp of the last set_model() call.  _refresh_config uses this
+        # to avoid overwriting _llm_model with stale data from the daemon
+        # before its config_snapshot has converged after a model change.
+        self._model_set_at: float = 0.0
+        # Cached reference to the footer Static — set in on_mount.
+        # Avoids query_one() calls from async worker contexts (which can
+        # silently fail when the Chat tab is not the active tab).
+        self._status_widget: Static | None = None
+
+    def is_streaming(self) -> bool:
+        """True while an LLM stream is in flight (chat or mode-fix)."""
+        return self._streaming_active
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="chat-messages"):
@@ -205,6 +217,8 @@ class ChatWidget(Container):
             yield Static("", id="connection-status")
 
     def on_mount(self) -> None:
+        self._status_widget = self.query_one("#connection-status", Static)
+        self._status_widget.update("Connecting to daemon…")
         self._refresh_config()
         self.set_interval(30.0, self._refresh_config)
 
@@ -222,18 +236,63 @@ class ChatWidget(Container):
             if resp.get("ok") and isinstance(resp.get("result"), dict):
                 result = resp["result"]
                 self._llm_base_url = str(result.get("flm_base_url") or self._llm_base_url)
-                self._llm_model = str(result.get("flm_model") or self._llm_model)
+
+                daemon_model = str(result.get("flm_model") or "")
+                # True when the FLM server is reachable (TCP port open). The
+                # config patch flow additionally runs a warmup request before
+                # returning, so by the time `flm_model_loaded` goes True the
+                # model has responded to a real API call — not just opened a
+                # port.
+                model_loaded = bool(result.get("flm_model_loaded", False))
+
+                # Has set_model() been called recently?  If so we trust the
+                # explicitly pushed model (it came from a daemon-confirmed
+                # model-switch) and skip the daemon-snapshot value.
+                recent_push = time.monotonic() - self._model_set_at <= 60.0
+
+                if daemon_model:
+                    # Accept the daemon's model name only when it hasn't been
+                    # overwritten by set_model() in the last 60 seconds.
+                    if not recent_push:
+                        self._llm_model = daemon_model
+                    # Show the model name only when the model is confirmed
+                    # loaded, OR when it was just explicitly pushed (which
+                    # happens after a daemon-confirmed model switch).
+                    if model_loaded or recent_push:
+                        model_display = self._llm_model
+                    else:
+                        model_display = "(none)"
+                else:
+                    # Daemon has no model configured (e.g. FLM not running yet).
+                    self._llm_model = ""
+                    model_display = "(none)"
+
                 self._daemon_available = True
-                self._update_status(f"Model: {self._llm_model}  |  Daemon: connected")
+                self._update_status(f"Model: {model_display}  |  Daemon: connected")
                 return
         except Exception:
             pass
         self._daemon_available = False
         self._update_status("Daemon: not connected — config may be stale")
 
+    def set_model(self, model_name: str) -> None:
+        """Directly push the active model name (bypasses daemon poll).
+
+        Called by FlmModelPanel after a successful model change so the chat
+        footer and request target are correct *before* the daemon's config
+        snapshot converges.  Avoids the race where _refresh_config polls the
+        daemon and gets stale data.
+        """
+        self._llm_model = model_name
+        self._model_set_at = time.monotonic()
+        self._daemon_available = True
+        self._update_status(
+            f"Model: {model_name if model_name else '(none)'}  |  Daemon: connected"
+        )
+
     def _update_status(self, text: str) -> None:
-        status = self.query_one("#connection-status", Static)
-        status.update(text)
+        if self._status_widget is not None:
+            self._status_widget.update(text)
 
     # ---- Input handling ----
 
@@ -258,6 +317,20 @@ class ChatWidget(Container):
             return
         if self._streaming_active:
             return
+
+        # Block input while the FLM model is being restarted — the XRT
+        # NPU context would be destroyed mid-inference, causing an error.
+        try:
+            from tui.dashboard import FlmModelPanel
+            panel = self.app.query_one(FlmModelPanel)
+            if panel.restarting:
+                self.app.notify(
+                    "Model is restarting — please wait before chatting",
+                    severity="warning", timeout=4,
+                )
+                return
+        except Exception:
+            pass
 
         # Check for slash commands
         if text.startswith("/"):
@@ -367,6 +440,18 @@ class ChatWidget(Container):
 
     def _send_chat_message(self, text: str) -> None:
         """Send a regular chat message to the LLM with streaming."""
+        # Guard: don't send if FLM is restarting.
+        try:
+            from tui.dashboard import FlmModelPanel
+            panel = self.app.query_one(FlmModelPanel)
+            if panel.restarting:
+                self.app.notify(
+                    "Model is restarting — try again shortly",
+                    severity="warning", timeout=4,
+                )
+                return
+        except Exception:
+            pass
         self._add_message("user", text)
         self._add_message("assistant", "…", is_streaming=True)
 

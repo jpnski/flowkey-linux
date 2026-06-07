@@ -350,10 +350,12 @@ def test_apply_config_patch_updates_flm_model_and_runtime(fresh_modules, monkeyp
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
     monkeypatch.setattr(grammar_fix, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(grammar_fix, "stop_flm_server", lambda force=True: True)
+    monkeypatch.setattr(grammar_fix, "start_flm_server", lambda force_restart=False: "started")
 
     result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
 
-    assert result == "model=other:1b"
+    assert result == "model=other:1b restarted"
     assert grammar_fix.FLM_MODEL == "other:1b"
     saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
     assert saved["flm_model"] == "other:1b"
@@ -382,12 +384,143 @@ def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
     monkeypatch.setattr(grammar_fix, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(grammar_fix, "stop_flm_server", lambda force=True: True)
+    monkeypatch.setattr(grammar_fix, "start_flm_server", lambda force_restart=False: "started")
 
     grammar_fix.apply_config_patch({"flm_model": "other:1b"})
 
     saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
     assert saved["flm_model"] == "other:1b"
     assert "llm_model" not in (saved.get("chat") or {})
+
+
+def test_apply_config_patch_restarts_flm_server_on_model_change(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
+    )
+
+    call_log: list[tuple[str, object]] = []
+
+    def fake_stop(force=True):
+        call_log.append(("stop", force))
+
+    def fake_start(force_restart=True):
+        call_log.append(("start", force_restart))
+        return "started"
+
+    monkeypatch.setattr(grammar_fix, "stop_flm_server", fake_stop)
+    monkeypatch.setattr(grammar_fix, "start_flm_server", fake_start)
+
+    result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+
+    assert result == "model=other:1b restarted"
+    assert [name for name, _ in call_log] == ["stop", "start"]
+    assert call_log[0][1] is True
+    assert call_log[1][1] is True
+    assert grammar_fix.FLM_MODEL == "other:1b"
+
+
+def test_apply_config_patch_start_failure_is_non_fatal(fresh_modules, monkeypatch, caplog):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
+    )
+    monkeypatch.setattr(grammar_fix, "stop_flm_server", lambda force=True: True)
+
+    def start_raises(**kwargs):
+        raise RuntimeError("simulated start failure")
+
+    monkeypatch.setattr(grammar_fix, "start_flm_server", start_raises)
+
+    caplog.set_level("WARNING", logger="flowkey.grammar_fix")
+    result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+
+    assert result == "model=other:1b restarted"
+    assert grammar_fix.FLM_MODEL == "other:1b"
+    assert any("start_flm_server after model change failed" in rec.message for rec in caplog.records)
+
+
+def test_apply_config_patch_does_not_restart_when_model_unchanged(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b"], "active": "qwen3.5:4b"},
+    )
+
+    restart_called = {"stop": 0, "start": 0}
+
+    def fake_stop(force=True):
+        restart_called["stop"] += 1
+        return True
+
+    def fake_start(force_restart=False):
+        restart_called["start"] += 1
+        return "started"
+
+    monkeypatch.setattr(grammar_fix, "stop_flm_server", fake_stop)
+    monkeypatch.setattr(grammar_fix, "start_flm_server", fake_start)
+
+    result = grammar_fix.apply_config_patch({"server": {"auto_start": False}})
+
+    assert result == "ok"
+    assert restart_called == {"stop": 0, "start": 0}
+
+
+def test_apply_config_patch_rejects_embedding_model(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    list_calls = {"n": 0}
+
+    def fake_list():
+        list_calls["n"] += 1
+        # Simulate the embedding model being installed — the new chat-selectable
+        # check must still reject it before this list is consulted.
+        return {"models": ["qwen3.5:4b", "embed-gemma:300m"], "active": "qwen3.5:4b"}
+
+    monkeypatch.setattr(grammar_fix, "list_flm_models", fake_list)
+    monkeypatch.setattr(grammar_fix, "stop_flm_server", lambda force=True: True)
+    monkeypatch.setattr(grammar_fix, "start_flm_server", lambda force_restart=False: "started")
+
+    with pytest.raises(RuntimeError, match="not a chat-selectable model"):
+        grammar_fix.apply_config_patch({"flm_model": "embed-gemma:300m"})
+
+    # The file on disk is untouched (no half-write).
+    on_disk = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
+    assert on_disk["flm_model"] != "embed-gemma:300m"
+
+
+def test_apply_config_patch_rejects_asr_only_model(fresh_modules, monkeypatch):
+    grammar_fix = fresh_modules("grammar_fix")
+    monkeypatch.setattr(
+        grammar_fix,
+        "list_flm_models",
+        lambda: {"models": ["qwen3.5:4b", "whisper-v3:turbo"], "active": "qwen3.5:4b"},
+    )
+
+    with pytest.raises(RuntimeError, match="not a chat-selectable model"):
+        grammar_fix.apply_config_patch({"flm_model": "whisper-v3:turbo"})
+
+
+def test_refresh_runtime_config_falls_back_when_model_is_non_chat(
+    fresh_modules, monkeypatch, caplog
+):
+    grammar_fix = fresh_modules("grammar_fix")
+    grammar_fix.CONFIG_PATH.write_text(
+        json.dumps({"flm_model": "embed-gemma:300m"}),
+        encoding="utf-8",
+    )
+
+    caplog.set_level("WARNING", logger="flowkey.grammar_fix")
+    grammar_fix.refresh_runtime_config()
+
+    assert grammar_fix.FLM_MODEL == "gemma4-it:e4b"
+    assert any("embed-gemma:300m" in rec.message for rec in caplog.records)
+    assert any("not a chat-selectable" in rec.message for rec in caplog.records)
 
 
 def test_read_and_write_output_file_modes(fresh_modules, monkeypatch, tmp_path: Path):

@@ -25,6 +25,8 @@ import updater
 
 import config
 
+_is_selectable_chat_model = flm_server._is_selectable_chat_model
+
 try:
     from importlib.metadata import version as _pkg_version
     APP_VERSION = _pkg_version("flowkey")
@@ -71,6 +73,13 @@ def refresh_runtime_config() -> None:
         log.warning("invalid flm_base_url in config, using default: %s", exc)
         FLM_BASE_URL = "http://127.0.0.1:52625"
     FLM_MODEL = str(CONFIG.get("flm_model") or "gemma4-it:e4b").strip()
+    if FLM_MODEL and not _is_selectable_chat_model(FLM_MODEL):
+        log.warning(
+            "flm_model %r in config is not a chat-selectable model; "
+            "falling back to default %r",
+            FLM_MODEL, config.DEFAULT_CHAT_MODEL,
+        )
+        FLM_MODEL = config.DEFAULT_CHAT_MODEL
     FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_timeout_seconds") or 30)
     HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history_filename") or "grammar_fix_history.jsonl")
     HISTORY_STORE_TEXT = bool(CONFIG.get("history_store_text", False))
@@ -547,6 +556,11 @@ def apply_config_patch(patch: dict) -> str:
         new_model = str(filtered["flm_model"]).strip()
         if not new_model:
             raise RuntimeError("flm_model cannot be empty.")
+        if not _is_selectable_chat_model(new_model):
+            raise RuntimeError(
+                f"flm_model {new_model!r} is not a chat-selectable model. "
+                f"Embedding/ASR models are reserved for side-loading; pick a chat model instead."
+            )
         models_info = list_flm_models()
         if "error" not in models_info:
             installed = models_info.get("models") or []
@@ -568,12 +582,39 @@ def apply_config_patch(patch: dict) -> str:
                 f"got {FLM_MODEL!r}"
             )
         if FLM_MODEL != old_model:
+            # Model changed: stop old server, start new one.
             try:
-                _warmup_request(FLM_MODEL)
+                stop_flm_server(force=True)
             except Exception as exc:
-                log.warning("warmup after model change failed: %s", exc)
-            return f"model={FLM_MODEL}"
+                log.warning("stop_flm_server after model change failed: %s", exc)
+            _do_server_start_and_warmup(FLM_MODEL)
+            return f"model={FLM_MODEL} restarted"
+
+        # Model name is the same, but the server may not be running yet
+        # (first-time load in the daemon's current lifecycle).
+        if not is_flm_server_reachable():
+            log.info("model %s unchanged but server not running — starting", FLM_MODEL)
+            _do_server_start_and_warmup(FLM_MODEL)
+            return f"model={FLM_MODEL} started"
+
     return "ok"
+
+
+def _do_server_start_and_warmup(model: str) -> None:
+    """Start the FLM server for *model* and wait until it responds to
+    a real API call (warmup), confirming the model is loaded in memory."""
+    try:
+        start_flm_server(force_restart=True)
+    except Exception as exc:
+        log.warning("start_flm_server for %s failed: %s", model, exc)
+        return
+    try:
+        _warmup_request(model)
+    except Exception as exc:
+        log.warning(
+            "model %s started but warmup request failed (may still be loading): %s",
+            model, exc,
+        )
 
 
 def build_config_snapshot() -> dict:
@@ -594,6 +635,7 @@ def build_config_snapshot() -> dict:
         "version": APP_VERSION,
         "flm_base_url": str(cfg.get("flm_base_url") or "http://127.0.0.1:52625"),
         "flm_model": str(cfg.get("flm_model") or FLM_MODEL),
+        "flm_model_loaded": is_flm_server_reachable(),
         "flm_timeout_seconds": int(cfg.get("flm_timeout_seconds") or 30),
         "history_store_text": bool(cfg.get("history_store_text", False)),
         "server": {
