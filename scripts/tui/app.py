@@ -48,6 +48,11 @@ Screen {
     background: $surface;
 }
 
+Widget {
+    scrollbar-size-vertical: 1;
+    scrollbar-size-horizontal: 1;
+}
+
 TabbedContent {
     height: 1fr;
 }
