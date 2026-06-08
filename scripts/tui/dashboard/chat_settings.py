@@ -24,7 +24,7 @@ _PRESET_TO_RADIO: dict[str, str] = {v: k for k, v in _RADIO_TO_PRESET.items()}
 _LABELS: dict[str, str] = {
     "tone-friendly": "Friendly",
     "tone-casual": "Casual",
-    "tone-formal": "Professional",
+    "tone-formal": "Formal",
 }
 
 
@@ -58,7 +58,7 @@ class ChatSettingsPanel(Vertical):
         with RadioSet(id="tone-radio-set"):
             yield RadioButton("Friendly", id="tone-friendly")
             yield RadioButton("Casual", id="tone-casual")
-            yield RadioButton("Professional", id="tone-formal")
+            yield RadioButton("Formal", id="tone-formal")
 
     # ---- Data ingestion (called by ConfigPane) ----
 

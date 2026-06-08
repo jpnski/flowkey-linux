@@ -15,7 +15,6 @@ from textual.widgets import TabbedContent, TabPane
 
 from tui.dashboard._daemon import REFRESH_INTERVAL
 from tui.dashboard._pane import Pane
-from tui.dashboard.overview import OverviewPane
 from tui.dashboard.telemetry import TelemetryPane
 from tui.dashboard.history import HistoryPane
 from tui.dashboard.notes import NotesPane
@@ -99,18 +98,16 @@ class DashboardWidget(Vertical):
 
     def compose(self) -> ComposeResult:
         with TabbedContent(id="dashboard-tabs"):
-            with TabPane("Overview", id="tab-overview"):
-                yield OverviewPane()
-            with TabPane("Telemetry", id="tab-telemetry"):
-                yield TelemetryPane()
-            with TabPane("History", id="tab-history"):
-                yield HistoryPane()
-            with TabPane("Notes", id="tab-notes"):
-                yield NotesPane()
             with TabPane("Config", id="tab-config"):
                 yield ConfigPane()
+            with TabPane("Telemetry", id="tab-telemetry"):
+                yield TelemetryPane()
             with TabPane("Benchmark", id="tab-bench"):
                 yield BenchmarkPane()
+            with TabPane("Notes", id="tab-notes"):
+                yield NotesPane()
+            with TabPane("History", id="tab-history"):
+                yield HistoryPane()
 
     def on_mount(self) -> None:
         # First load: synchronous so data appears immediately.

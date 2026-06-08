@@ -222,12 +222,10 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ## Phase 6 — Cleanup & Documentation
 
-- [x] **36.** Update `.gitignore`: clean for Linux, remove Windows artifacts
+- [x] **35.** Update `.gitignore`: clean for Linux, remove Windows artifacts
 
-- [x] **37.** Update `CHANGELOG.md` — note Linux port initial version
+- [x] **36.** Remove remaining Windows-only seed config duplicates in `setup/defaults/` if any are Windows-specific — vault_dir updated to Linux path
 
-- [x] **38.** Remove remaining Windows-only seed config duplicates in `setup/defaults/` if any are Windows-specific — vault_dir updated to Linux path
+- [x] **37.** Final `pytest tests/ -q` pass on Linux
 
-- [x] **39.** Final `pytest tests/ -q` pass on Linux — **87 passed, 1 skipped** (tkinter not available in headless CI)
-
-- [x] **40.** Update `README.md` with Linux-specific install instructions, dependencies, troubleshooting, and TUI usage guide
+- [x] **39.** Update `README.md` with Linux-specific install instructions, dependencies, troubleshooting, and TUI usage guide

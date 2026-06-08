@@ -60,8 +60,12 @@ def test_start_pull_refuses_second_concurrent(fresh_modules):
         _wait_for_state(pull, "done")
 
 
-def test_cancel_pull_terminates_running_pull(fresh_modules):
+def test_cancel_pull_terminates_running_pull(fresh_modules, monkeypatch):
     pull = fresh_modules("pull")
+    # Suppress filesystem side-effects — the daemon-worker invokes
+    # _cleanup_partial_model after detecting cancellation, but in unit
+    # tests there's no real flm model to clean up.
+    monkeypatch.setattr(pull, "_cleanup_partial_model", lambda m: None)
 
     cancel_flag = threading.Event()
     started = threading.Event()
@@ -108,3 +112,41 @@ def test_cancel_pull_after_done_returns_error(fresh_modules):
     assert cancel["ok"] is False
     assert cancel["state"] == "done"
     assert "no pull in progress" in cancel["error"]
+
+
+def test_cleanup_invoked_on_cancel(fresh_modules, monkeypatch):
+    """Verify _cleanup_partial_model is called with the model name on cancel.
+
+    Must synchronise on a separate ``cleanup_done`` event because
+    ``cancel_pull()`` sets ``state=cancelled`` immediately (before the worker
+    thread processes the cancellation).  Polling the state would see
+    ``cancelled`` and return before the cleanup callback fires.
+    """
+    pull = fresh_modules("pull")
+    cleanup_done = threading.Event()
+    cleanup_model: list[str] = []
+
+    def tracking_cleanup(model: str) -> None:
+        cleanup_model.append(model)
+        cleanup_done.set()
+
+    monkeypatch.setattr(pull, "_cleanup_partial_model", tracking_cleanup)
+
+    cancel_flag = threading.Event()
+    started = threading.Event()
+
+    def runner(model: str, on_line: Callable[[str], None]) -> int:
+        on_line("5%")
+        started.set()
+        cancel_flag.wait(timeout=5)
+        return 130
+
+    resp = pull.start_pull("qwen3.5:4b", runner=runner)
+    assert resp["ok"] is True
+    assert started.wait(timeout=2), "runner did not start"
+    _wait_for_state(pull, "running")
+
+    pull.cancel_pull()
+    cancel_flag.set()
+    assert cleanup_done.wait(timeout=3), "cleanup was not invoked within timeout"
+    assert cleanup_model == ["qwen3.5:4b"], f"got {cleanup_model}"

@@ -17,8 +17,7 @@ from textual.widgets import Select, Static
 
 from tui.dashboard._daemon import _daemon_post, _DAEMON_TIMEOUT_DEFAULT, _DAEMON_TIMEOUT_MODEL_CHANGE, _DAEMON_TIMEOUT_PULL_START, _DAEMON_TIMEOUT_PULL_CANCEL
 
-_RESTART_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_PULL_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 class FlmModelPanel(Vertical):
@@ -48,7 +47,6 @@ class FlmModelPanel(Vertical):
     #flm-pull-row.active { display: block; }
     #flm-pull-spinner { width: 1; }
     .pull-text { width: 1fr; }
-    /* Cancel pull button — inline red "X" (Static, not a text-art Button) */
     .cancel-pull-btn {
         width: 3;
         height: 1;
@@ -118,7 +116,7 @@ class FlmModelPanel(Vertical):
         with Horizontal(id="flm-pull-row"):
             yield Static("", id="flm-pull-spinner")
             yield Static("", id="flm-pull-text", classes="pull-text")
-            yield Static("[red]✗[/]", id="flm-cancel-pull-btn", classes="cancel-pull-btn")
+            yield Static("[red]❌[/]", id="flm-cancel-pull-btn", classes="cancel-pull-btn")
 
     def on_mount(self) -> None:
         self.set_interval(1.0, self._refresh_pull_status)
@@ -231,7 +229,7 @@ class FlmModelPanel(Vertical):
         """Shorten pull status: drop the verbose daemon prefix, keep only size info."""
         size_match = re.search(r'\([^)]+/\s*[^)]+\)', message)
         size_info = f" {size_match.group(0)}" if size_match else ""
-        return f"Pulling [bold]{model}[/]: {percent:.1f}%{size_info}"
+        return f" Pulling [bold]{model}[/] | {percent:.1f}%{size_info}"
 
     def _refresh_pull_status(self) -> None:
         resp = _daemon_post("pull_status")
@@ -252,7 +250,7 @@ class FlmModelPanel(Vertical):
             # Reset completion guard so the next terminal state fires once.
             self._pull_completed_key = ""
             pull_row.add_class("active")
-            spinner.update(f"[yellow]{_PULL_SPINNER[self._pull_spinner_index % len(_PULL_SPINNER)]}[/]")
+            spinner.update(f"[yellow]{_SPINNER[self._pull_spinner_index % len(_SPINNER)]}[/]")
             text.update(f"[yellow]{self._format_pull_status(model, percent, message)}[/]")
             self._pull_in_flight = True
         elif state == "done":
@@ -291,8 +289,8 @@ class FlmModelPanel(Vertical):
     def _tick_restart_spinner(self) -> None:
         if not self.restarting:
             return
-        self._spinner_index = (self._spinner_index + 1) % len(_RESTART_SPINNER)
-        glyph = _RESTART_SPINNER[self._spinner_index]
+        self._spinner_index = (self._spinner_index + 1) % len(_SPINNER)
+        glyph = _SPINNER[self._spinner_index]
         try:
             line = self.query_one("#flm-restart-status-line", Static)
             line.update(f"[yellow]{glyph} {self.restart_label}[/]")
@@ -302,8 +300,8 @@ class FlmModelPanel(Vertical):
     def _tick_pull_spinner(self) -> None:
         if not self._pull_in_flight:
             return
-        self._pull_spinner_index = (self._pull_spinner_index + 1) % len(_PULL_SPINNER)
-        glyph = _PULL_SPINNER[self._pull_spinner_index]
+        self._pull_spinner_index = (self._pull_spinner_index + 1) % len(_SPINNER)
+        glyph = _SPINNER[self._pull_spinner_index]
         try:
             spinner = self.query_one("#flm-pull-spinner", Static)
             spinner.update(f"[yellow]{glyph}[/]")
@@ -407,7 +405,7 @@ class FlmModelPanel(Vertical):
         self.restart_label = f"Restarting FLM, swapping to {new_value}"
         line = self.query_one("#flm-restart-status-line", Static)
         line.add_class("active")
-        line.update(f"[yellow]{_RESTART_SPINNER[0]} {self.restart_label}[/]")
+        line.update(f"[yellow]{_SPINNER[0]} {self.restart_label}[/]")
 
         try:
             resp = await asyncio.to_thread(
