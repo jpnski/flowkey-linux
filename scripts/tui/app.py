@@ -86,6 +86,10 @@ TabPane:focus {
     margin-bottom: 0;
     margin-top: 1;
 }
+
+Toast {
+    width: 30;
+}
 """
 
 

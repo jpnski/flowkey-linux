@@ -24,7 +24,8 @@ from pathlib import Path
 import loopback_http
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Input, Static
+from textual.events import Click
+from textual.widgets import Button, Input, Markdown, Static
 
 log = logging.getLogger("flowkey.tui.chat")
 
@@ -82,40 +83,84 @@ HELP_TEXT = """
 # ---------------------------------------------------------------------------
 
 
-class MessageBubble(Static):
-    """A single chat message with role-based styling."""
+class MessageBubble(Horizontal):
+    """A single chat message with role-based styling and a copy button on assistant responses."""
 
-    def __init__(self, role: str, content: str, is_streaming: bool = False, show_role: bool = True) -> None:
+    def __init__(self, role: str, content: str, is_streaming: bool = False, *,
+                 show_role: bool = True, msg_id: int = 0) -> None:
+        super().__init__()
         self._role = role
         self._content = content
         self._is_streaming = is_streaming
         self._show_role = show_role
-        rendered = self._format_content()
-        super().__init__(rendered)
+        self._msg_id = msg_id
 
-    def _format_content(self) -> str:
-        """Format role + content for display."""
-        role_tag = "You" if self._role == "user" else "Flowkey"
-        if self._is_streaming:
-            role_tag += " (streaming)"
-        # Only escape markup brackets for untrusted user input.
-        # Assistant content (HELP_TEXT, LLM responses) may use [b]/[i] etc.
+    def compose(self) -> ComposeResult:
         content = self._content
         if self._role == "user":
             content = content.replace("[", "[[")
-        if not self._show_role:
-            return content
-        return f"[bold]{role_tag}:[/]\n\n{content}"
+
+        # Assistant messages render as Markdown (bold/italic/code/lists work).
+        # User messages and help-text render as plain Static.
+        if self._role == "assistant" and self._show_role:
+            yield Markdown(content, classes="message-content", id=f"content-{self._msg_id}")
+        else:
+            yield Static(content, classes="message-content", id=f"content-{self._msg_id}")
+
+        # Assistant bubbles get a copy button; help-text (show_role=False) does not.
+        if self._role == "assistant" and self._show_role:
+            yield Static("📋", id=f"copy-{self._msg_id}", classes="copy-btn")
+
+    # -- helpers ----------------------------------------------------------------
+
+    @staticmethod
+    def _normalize_for_markdown(text: str) -> str:
+        """Strip Textual markup tags (e.g. [red], [/red]) for clean Markdown.
+
+        These tags appear in error/status messages produced by ChatWidget;
+        they are not valid Markdown and would render as literal text.
+        """
+        return re.sub(r'\[/?(?:red|yellow|green|blue|bold|italic|dim|strike|underline)\]', '', text)
+
+    def _rendered_content(self) -> str:
+        """Return content with user-markup escaping applied."""
+        c = self._content
+        if self._role == "user":
+            c = c.replace("[", "[[")
+        return c
+
+    # -- public API used by ChatWidget -----------------------------------------
 
     def update_content(self, content: str) -> None:
-        """Update content in-place (for streaming)."""
+        """Update content in-place (for streaming).
+
+        Assistant bubbles (Markdown widget) get Textual-markup stripped for
+        clean display.  User/help bubbles (Static widget) get bracket escaping.
+        """
         self._content = content
-        self.update(self._format_content())
+        try:
+            widget = self.query_one(f"#content-{self._msg_id}")
+            if isinstance(widget, Markdown):
+                widget.update(self._normalize_for_markdown(content))
+            elif isinstance(widget, Static):
+                widget.update(self._rendered_content())
+        except Exception:
+            pass
 
     def finalize_stream(self) -> None:
-        """Mark streaming as complete."""
+        """Mark streaming as complete — no role label to update anymore."""
         self._is_streaming = False
-        self.update(self._format_content())
+
+    # -- event handlers --------------------------------------------------------
+
+    def on_click(self, event: Click) -> None:
+        if event.widget.id == f"copy-{self._msg_id}":
+            import pyperclip
+            try:
+                pyperclip.copy(self._content)
+                self.app.notify("Copied", timeout=1.5)
+            except Exception:
+                self.app.notify("Copy failed", severity="error", timeout=2)
 
 
 # ---------------------------------------------------------------------------
@@ -139,9 +184,10 @@ class ChatWidget(Container):
     }
 
     #chat-messages > MessageBubble {
+        height: auto;
         margin: 0 0 1 0;
         padding: 1;
-        min-height: 1;
+        min-height: 3;
     }
 
     #chat-messages > MessageBubble.user {
@@ -181,11 +227,39 @@ class ChatWidget(Container):
         color: $text-muted;
         margin-top: 1;
     }
+
+    .message-content {
+        width: 1fr;
+    }
+
+    /* Text color: user messages faded, assistant messages vivid */
+    #chat-messages > MessageBubble.user .message-content {
+        color: $text-muted;
+    }
+    #chat-messages > MessageBubble.assistant .message-content {
+        color: $text;
+    }
+
+
+
+    /* Copy button on assistant response bubbles (clickable Static) */
+    .copy-btn {
+        width: 3;
+        height: 1;
+        padding: 0;
+        text-align: center;
+        color: $text-muted;
+    }
+    .copy-btn:hover {
+        color: $text;
+        background: $surface;
+    }
     """
 
     def __init__(self) -> None:
         super().__init__()
         self._history: list[dict] = []
+        self._msg_seq: int = 0  # monotonically increasing counter for unique message IDs
         self._thread_id: str = uuid.uuid4().hex
         self._streaming_active = False
         self._current_bubble: MessageBubble | None = None
@@ -354,7 +428,7 @@ class ChatWidget(Container):
         if cmd == "/clear":
             self._clear_history()
         elif cmd == "/help":
-            self._add_message("assistant", HELP_TEXT)
+            self._add_message("assistant", HELP_TEXT, show_role=False)
         elif cmd in ("/grammar",):
             self._handle_mode_fix("grammar", args or self._get_last_selection())
         elif cmd in ("/summarize",):
@@ -536,14 +610,17 @@ class ChatWidget(Container):
 
     # ---- Message management ----
 
-    def _add_message(self, role: str, content: str, is_streaming: bool = False) -> None:
+    def _add_message(self, role: str, content: str, is_streaming: bool = False,
+                     show_role: bool = True) -> None:
         """Add a message to the chat log."""
-        msg = {"role": role, "content": content, "timestamp": time.time()}
+        self._msg_seq += 1
+        msg = {"role": role, "content": content, "timestamp": time.time(), "msg_id": self._msg_seq}
         with self._lock:
             self._history.append(msg)
 
         messages = self.query_one("#chat-messages", VerticalScroll)
-        bubble = MessageBubble(role, content, is_streaming=is_streaming)
+        bubble = MessageBubble(role, content, is_streaming=is_streaming,
+                               show_role=show_role, msg_id=self._msg_seq)
         bubble.add_class(role)
         messages.mount(bubble)
         messages.scroll_end(animate=False)

@@ -6,11 +6,20 @@ from textual.widgets import Static
 
 from tui.dashboard._pane import Pane
 from tui.dashboard._daemon import _daemon_post
+from tui.dashboard.chat_settings import ChatSettingsPanel
 from tui.dashboard.flm_panel import FlmModelPanel
 
 
 class ConfigPane(Pane):
     """Config pane: hotkeys, model, performance mode + FlmModelPanel sub-widget."""
+
+    DEFAULT_CSS = """
+    .subsection-header {
+        color: $text-muted;
+        text-style: italic;
+        margin-top: 1;
+    }
+    """
 
     def __init__(self) -> None:
         super().__init__()
@@ -19,6 +28,7 @@ class ConfigPane(Pane):
     def compose(self) -> ComposeResult:
         with Vertical(id="config-tab-root"):
             yield FlmModelPanel(id="flm-model-panel")
+            yield ChatSettingsPanel(id="chat-settings-panel")
             yield Static("Loading Config…", id="config-content", classes="panel-content")
 
     def _fetch(self) -> None:
@@ -53,9 +63,17 @@ class ConfigPane(Pane):
             active = str(cfg.get("flm_model") or "")
             model_loaded = bool(cfg.get("flm_model_loaded", False))
 
-        # Update FlmModelPanel immediately (it's data-ingestion, not a render).
+        # Feed tone preset to ChatSettingsPanel.
+        tone_preset = "formal"
+        if config_resp.get("ok"):
+            tone_preset = str(
+                (config_resp.get("result") or {}).get("tone", {}).get("preset", "formal")
+            )
+
+        # Update FlmModelPanel and ChatSettingsPanel (data-ingestion, not a render).
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded)
+        self.call_later(self._update_chat_settings_panel, tone_preset)
         # Schedule the config text render.
         self.call_later(self._on_data)
 
@@ -71,6 +89,13 @@ class ConfigPane(Pane):
             return
         panel.update_models(installed, not_installed, active, model_loaded,
                             daemon_reachable=True)
+
+    def _update_chat_settings_panel(self, preset: str) -> None:
+        try:
+            panel = self.query_one(ChatSettingsPanel)
+        except Exception:
+            return
+        panel.update_tone(preset)
 
     def _on_data(self) -> None:
         content = self.query_one("#config-content", Static)

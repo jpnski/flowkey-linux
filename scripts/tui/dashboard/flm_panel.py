@@ -4,31 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from functools import partial
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
+from textual.events import Click
 from textual.reactive import reactive
-from textual.widgets import Button, Collapsible, ListItem, ListView, ProgressBar, Select, Static
+from textual.widgets import Select, Static
 
 from tui.dashboard._daemon import _daemon_post, _DAEMON_TIMEOUT_DEFAULT, _DAEMON_TIMEOUT_MODEL_CHANGE, _DAEMON_TIMEOUT_PULL_START, _DAEMON_TIMEOUT_PULL_CANCEL
 
-class ModelListItem(ListItem):
-    """ListItem that carries a model name. Avoids invalid DOM ids for `gemma4-it:e4b`."""
-
-    def __init__(self, model_name: str) -> None:
-        super().__init__(Static(model_name), id=f"flm-dl-{_safe_id(model_name)}")
-        self.model_name = model_name
-
-
-def _safe_id(name: str) -> str:
-    """Encode a string so it is a valid Textual DOM identifier (no colons, etc.)."""
-    return "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in name)
-
-
 _RESTART_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_PULL_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 class FlmModelPanel(Vertical):
@@ -36,11 +26,10 @@ class FlmModelPanel(Vertical):
 
     Provides:
     - A `Select` to switch the active model (lists installed models).
-    - A `Button` that toggles a `Collapsible` containing a `ListView` of
-      not-yet-installed models. Pressing Enter on a row starts a pull.
-    - A `ProgressBar` + status line for in-flight pull progress.
-    - A second indeterminate `ProgressBar` + spinner while the FLM server
-      is being restarted on an active-model change.
+    - A `Select` to pick a not-yet-installed model to download.
+    - An inline spinner + status text + cancel button for pull progress.
+    - A spinner + status line while the FLM server is being restarted on
+      an active-model change.
     """
 
     DEFAULT_CSS = """
@@ -48,21 +37,29 @@ class FlmModelPanel(Vertical):
         height: auto;
         border: solid $surface;
         padding: 0 1;
-        margin: 0 0 1 0;
+        margin: 0;
     }
-    .flm-section-label {
-        color: $text-muted;
-        text-style: italic;
-        margin-top: 1;
+    #flm-active-model-select { margin-bottom: 0; }
+    #flm-download-select { margin-bottom: 0; }
+    #flm-restart-status-line { display: none; }
+    #flm-restart-status-line.active { display: block; }
+    /* Pull progress row — hidden by default, shown via .active */
+    #flm-pull-row { display: none; height: auto; margin-top: 1; }
+    #flm-pull-row.active { display: block; }
+    #flm-pull-spinner { width: 1; }
+    .pull-text { width: 1fr; }
+    /* Cancel pull button — inline red "X" (Static, not a text-art Button) */
+    .cancel-pull-btn {
+        width: 3;
+        height: 1;
+        padding: 0;
+        text-align: center;
+        color: $error;
     }
-    #flm-active-model-select { margin-bottom: 1; }
-    #flm-pull-status-line { color: $text-muted; margin-top: 1; }
-    #flm-pull-progress { display: none; }
-    #flm-restart-progress { display: none; }
-    #flm-cancel-pull-btn { display: none; }
-    #flm-pull-progress.active,
-    #flm-restart-progress.active,
-    #flm-cancel-pull-btn.active { display: block; }
+    .cancel-pull-btn:hover {
+        color: $text;
+        background: $surface;
+    }
     """
 
     # Reactive state for the restarting spinner.
@@ -76,8 +73,9 @@ class FlmModelPanel(Vertical):
         self._active_model: str = ""
         self._prior_active: str = ""
         self._spinner_index: int = 0
+        self._pull_spinner_index: int = 0
         self._pull_in_flight: bool = False
-        self._list_populated: bool = False
+        self._pull_completed_key: str = ""  # guards against re-notifying on repeated polls of the same terminal state
         self._daemon_reachable: bool = True
         self._last_model_change_at: float = 0.0
         # Whether the FLM server is reachable and the model is confirmed loaded.
@@ -91,10 +89,14 @@ class FlmModelPanel(Vertical):
         # on the next _refresh_select call, set_options is skipped entirely,
         # avoiding the spurious first-option default Select.Changed event.
         self._last_select_options: list[str] = []
+        # Same suppression mechanism for the download Select.
+        self._last_dl_select_refresh_at: float = 0.0
+        # Cached option names — skip set_options when unchanged.
+        self._last_dl_select_options: list[str] = []
 
     def compose(self) -> ComposeResult:
         yield Static("FLM Model", classes="panel-header")
-        yield Static("Active model", classes="flm-section-label")
+        yield Static("Active model", classes="subsection-header")
         yield Select(
             options=[("(no model loaded)", "")],
             value="",
@@ -103,25 +105,25 @@ class FlmModelPanel(Vertical):
             id="flm-active-model-select",
             disabled=True,
         )
-        yield ProgressBar(total=None, show_eta=False, id="flm-restart-progress")
-        yield Static("", id="flm-restart-status-line", classes="flm-section-label")
-        yield Static("Download a model", classes="flm-section-label")
-        yield Collapsible(
-            Vertical(
-                Static("", id="flm-empty-download-msg"),
-                ListView(id="flm-download-list"),
-            ),
-            title="Download a model",
-            collapsed=True,
-            id="flm-download-collapse",
+        yield Static("", id="flm-restart-status-line")
+        yield Static("Download a model", classes="subsection-header")
+        yield Select(
+            options=[("(select a model)", "")],
+            value="",
+            allow_blank=False,
+            prompt="(select a model)",
+            id="flm-download-select",
+            disabled=True,
         )
-        yield Static("", id="flm-pull-status-line")
-        yield ProgressBar(total=100, show_eta=False, id="flm-pull-progress")
-        yield Button("Cancel pull", id="flm-cancel-pull-btn")
+        with Horizontal(id="flm-pull-row"):
+            yield Static("", id="flm-pull-spinner")
+            yield Static("", id="flm-pull-text", classes="pull-text")
+            yield Static("[red]✗[/]", id="flm-cancel-pull-btn", classes="cancel-pull-btn")
 
     def on_mount(self) -> None:
         self.set_interval(1.0, self._refresh_pull_status)
         self.set_interval(0.15, self._tick_restart_spinner)
+        self.set_interval(0.15, self._tick_pull_spinner)
 
     # ---- Data ingestion (called by DashboardWidget) ----
 
@@ -130,7 +132,7 @@ class FlmModelPanel(Vertical):
                       *, daemon_reachable: bool = True) -> None:
         """Refresh installed/not-installed lists and active model.
 
-        Idempotent: only re-populates the Select / ListView when something
+        Idempotent: only re-populates the Select widgets when something
         actually changed. Preserves user focus on the Select where possible.
         """
         self._daemon_reachable = daemon_reachable
@@ -140,9 +142,10 @@ class FlmModelPanel(Vertical):
         self._active_model = active if model_loaded else ""
 
         self._refresh_select()
-        if not self._list_populated:
-            self._refresh_download_list()
-            self._list_populated = True
+        # Always refresh the download select when the not-installed list
+        # changes (pull completed, daemon refresh, etc.).  _refresh_download_select
+        # is idempotent and skips set_options when nothing changed.
+        self._refresh_download_select()
 
     def mark_daemon_down(self) -> None:
         """Render the panel into its unreachable state."""
@@ -150,12 +153,14 @@ class FlmModelPanel(Vertical):
         self._active_model = ""
         self._installed_models = []
         self._not_installed_models = []
-        self._list_populated = False
-        status = self.query_one("#flm-pull-status-line", Static)
-        status.update("[red]Daemon unreachable — cannot list models[/]")
+        try:
+            row = self.query_one("#flm-pull-row")
+            row.remove_class("active")
+        except Exception:
+            pass
         self._set_select_enabled(False)
         try:
-            self.query_one("#flm-cancel-pull-btn", Button).remove_class("active")
+            self.query_one("#flm-download-select", Select).disabled = True
         except Exception:
             pass
 
@@ -194,17 +199,23 @@ class FlmModelPanel(Vertical):
             select.value = self._installed_models[0]
         self._set_select_enabled(not self.restarting)
 
-    def _refresh_download_list(self) -> None:
-        list_view = self.query_one("#flm-download-list", ListView)
-        list_view.clear()
-        for name in self._not_installed_models:
-            list_view.append(ModelListItem(name))
-        # Update the empty-list message inside the Collapsible.
-        empty_msg = self.query_one("#flm-empty-download-msg", Static)
+    def _refresh_download_select(self) -> None:
+        select = self.query_one("#flm-download-select", Select)
         if not self._not_installed_models:
-            empty_msg.update("[dim]All available models are already installed.[/]")
+            if self._last_dl_select_options:
+                self._last_dl_select_refresh_at = time.monotonic()
+                select.set_options([("(all models installed)", "")])
+                self._last_dl_select_options = []
+            select.disabled = True
         else:
-            empty_msg.update("")
+            if self._not_installed_models != self._last_dl_select_options:
+                options = [("(select a model)", "")] + [
+                    (name, name) for name in self._not_installed_models
+                ]
+                self._last_dl_select_refresh_at = time.monotonic()
+                select.set_options(options)
+                self._last_dl_select_options = list(self._not_installed_models)
+            select.disabled = False
 
     def _set_select_enabled(self, enabled: bool) -> None:
         try:
@@ -214,6 +225,13 @@ class FlmModelPanel(Vertical):
             pass
 
     # ---- Pollers ----
+
+    @staticmethod
+    def _format_pull_status(model: str, percent: float, message: str) -> str:
+        """Shorten pull status: drop the verbose daemon prefix, keep only size info."""
+        size_match = re.search(r'\([^)]+/\s*[^)]+\)', message)
+        size_info = f" {size_match.group(0)}" if size_match else ""
+        return f"Pulling [bold]{model}[/]: {percent:.1f}%{size_info}"
 
     def _refresh_pull_status(self) -> None:
         resp = _daemon_post("pull_status")
@@ -226,41 +244,49 @@ class FlmModelPanel(Vertical):
         message = str(result.get("message") or "")
         error = str(result.get("error") or "")
 
-        progress = self.query_one("#flm-pull-progress", ProgressBar)
-        status = self.query_one("#flm-pull-status-line", Static)
-        cancel_btn = self.query_one("#flm-cancel-pull-btn", Button)
+        pull_row = self.query_one("#flm-pull-row")
+        spinner = self.query_one("#flm-pull-spinner", Static)
+        text = self.query_one("#flm-pull-text", Static)
 
         if state == "running":
-            progress.add_class("active")
-            progress.update(progress=percent)
-            cancel_btn.add_class("active")
-            status.update(f"Pulling [bold]{model}[/]: {percent:.1f}% — {message or 'starting…'}")
+            # Reset completion guard so the next terminal state fires once.
+            self._pull_completed_key = ""
+            pull_row.add_class("active")
+            spinner.update(f"[yellow]{_PULL_SPINNER[self._pull_spinner_index % len(_PULL_SPINNER)]}[/]")
+            text.update(f"[yellow]{self._format_pull_status(model, percent, message)}[/]")
             self._pull_in_flight = True
         elif state == "done":
-            progress.add_class("active")
-            progress.update(progress=100.0)
-            cancel_btn.remove_class("active")
-            status.update(f"[green]✓ Pulled {model}[/]")
             self._pull_in_flight = False
-            self._list_populated = False
-            self._refresh_download_list()
-            self._list_populated = True
+            pull_row.remove_class("active")
+            spinner.update("")
+            text.update("")
+            if self._pull_completed_key != f"done:{model}":
+                self._pull_completed_key = f"done:{model}"
+                self.app.notify(f"Pulled new model: {model}", severity="information", timeout=4)
+                self.call_later(self._refresh_dashboard)
         elif state == "cancelled":
-            progress.remove_class("active")
-            cancel_btn.remove_class("active")
-            status.update("[yellow]⊘ Pull cancelled[/]")
             self._pull_in_flight = False
+            pull_row.remove_class("active")
+            spinner.update("")
+            text.update("")
+            if self._pull_completed_key != "cancelled":
+                self._pull_completed_key = "cancelled"
+                self.app.notify("Pull cancelled", severity="information", timeout=4)
         elif state == "error":
-            progress.remove_class("active")
-            cancel_btn.remove_class("active")
-            status.update(f"[red]✗ Pull failed: {error or 'unknown error'}[/]")
             self._pull_in_flight = False
+            pull_row.remove_class("active")
+            spinner.update("")
+            text.update("")
+            error_key = f"error:{error or 'unknown'}"
+            if self._pull_completed_key != error_key:
+                self._pull_completed_key = error_key
+                self.app.notify(f"Pull failed: {error or 'unknown error'}", severity="error", timeout=6)
         else:  # idle
             if self._pull_in_flight:
                 self._pull_in_flight = False
-            cancel_btn.remove_class("active")
-            if not self.restarting and not self._not_installed_models and not self._installed_models:
-                pass  # leave the "unreachable" / "all installed" message in place
+                pull_row.remove_class("active")
+                spinner.update("")
+                text.update("")
 
     def _tick_restart_spinner(self) -> None:
         if not self.restarting:
@@ -273,96 +299,115 @@ class FlmModelPanel(Vertical):
         except Exception:
             pass
 
-    # ---- Event handlers ----
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id != "flm-active-model-select":
+    def _tick_pull_spinner(self) -> None:
+        if not self._pull_in_flight:
             return
-        new_value = str(event.value or "")
-
-        # Suppress spurious Select.Changed triggered by set_options() in
-        # _refresh_select or the revert path.  These fire within the same
-        # event-loop iteration as the programmatic mutation, always < 1 s.
-        if time.monotonic() - self._last_select_refresh_at < 1.0:
-            return
-
-        if not self._installed_models:
-            return
-
-        select = event.select
-
-        # Chat-stream guard (applies to both unloading and switching).
-        is_streaming = False
+        self._pull_spinner_index = (self._pull_spinner_index + 1) % len(_PULL_SPINNER)
+        glyph = _PULL_SPINNER[self._pull_spinner_index]
         try:
-            from tui.chat import ChatWidget  # local import to avoid cycles
-            chat = self.app.query_one(ChatWidget)
-            if chat.is_streaming():
-                is_streaming = True
+            spinner = self.query_one("#flm-pull-spinner", Static)
+            spinner.update(f"[yellow]{glyph}[/]")
         except Exception:
             pass
 
-        # --- "(none)" selected → unload the model ---
-        if not new_value:
-            if self._model_loaded:
-                if is_streaming:
-                    self.app.notify(
-                        "Chat is streaming — finish or cancel before unloading the model",
-                        severity="warning", timeout=6,
-                    )
+    def _refresh_dashboard(self) -> None:
+        """Trigger a full dashboard refresh so model lists are re-fetched."""
+        try:
+            from tui.dashboard import DashboardWidget
+            self.app.query_one(DashboardWidget).refresh_now()
+        except Exception:
+            pass
+
+    # ---- Event handlers ----
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        # ---- Active-model Select ----
+        if event.select.id == "flm-active-model-select":
+            new_value = str(event.value or "")
+
+            # Suppress spurious Select.Changed triggered by set_options().
+            if time.monotonic() - self._last_select_refresh_at < 1.0:
+                return
+
+            if not self._installed_models:
+                return
+
+            select = event.select
+
+            # Chat-stream guard (applies to both unloading and switching).
+            is_streaming = False
+            try:
+                from tui.chat import ChatWidget  # local import to avoid cycles
+                chat = self.app.query_one(ChatWidget)
+                if chat.is_streaming():
+                    is_streaming = True
+            except Exception:
+                pass
+
+            # --- "(none)" selected → unload the model ---
+            if not new_value:
+                if self._model_loaded:
+                    if is_streaming:
+                        self.app.notify(
+                            "Chat is streaming — finish or cancel before unloading the model",
+                            severity="warning", timeout=6,
+                        )
+                        select.value = self._active_model
+                        return
+                    self.run_worker(self._unload_model, exclusive=True)
+                return
+
+            # --- A real model was selected ---
+            if new_value == self._active_model:
+                return
+            now = time.monotonic()
+            if now - self._last_model_change_at < 10.0:
+                return
+            if is_streaming:
+                self.app.notify(
+                    "Chat is streaming — finish or cancel before changing the model",
+                    severity="warning", timeout=6,
+                )
+                if self._active_model:
                     select.value = self._active_model
-                    return
-                self.run_worker(self._unload_model, exclusive=True)
+                else:
+                    select.value = self._installed_models[0]
+                return
+
+            self._prior_active = self._active_model
+            self._last_model_change_at = time.monotonic()
+            self.run_worker(partial(self._apply_model_change, new_value), exclusive=True)
             return
 
-        # --- A real model was selected ---
-        if new_value == self._active_model:
-            return
-        now = time.monotonic()
-        if now - self._last_model_change_at < 10.0:
-            return
-        if is_streaming:
-            self.app.notify(
-                "Chat is streaming — finish or cancel before changing the model",
-                severity="warning", timeout=6,
-            )
-            if self._active_model:
-                select.value = self._active_model
-            else:
-                select.value = self._installed_models[0]
-            return
+        # ---- Download-model Select ----
+        if event.select.id == "flm-download-select":
+            # Suppress spurious Select.Changed triggered by set_options().
+            if time.monotonic() - self._last_dl_select_refresh_at < 1.0:
+                return
 
-        self._prior_active = self._active_model
-        self._last_model_change_at = time.monotonic()
-        self.run_worker(partial(self._apply_model_change, new_value), exclusive=True)
+            model = str(event.value or "")
+            if not model:
+                return
+            if self._pull_in_flight:
+                self.app.notify("A pull is already in progress", severity="warning", timeout=4)
+                event.select.value = ""
+                return
+            self.run_worker(partial(self._start_pull, model), exclusive=True)
+            event.select.value = ""
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "flm-cancel-pull-btn":
+    def on_click(self, event: Click) -> None:
+        if event.widget.id == "flm-cancel-pull-btn":
             self.run_worker(self._cancel_pull, exclusive=True)
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if event.list_view.id != "flm-download-list":
-            return
-        item = event.item
-        if not isinstance(item, ModelListItem):
-            return
-        model = item.model_name
-        if not model:
-            return
-        if self._pull_in_flight:
-            self.app.notify("A pull is already in progress", severity="warning", timeout=4)
-            return
-        self.run_worker(partial(self._start_pull, model), exclusive=True)
 
     # ---- Workers ----
 
     async def _apply_model_change(self, new_value: str) -> None:
         self._set_select_enabled(False)
         self.restarting = True
-        self.restart_label = f"Restarting FLM server on {new_value}…"
-        self.query_one("#flm-restart-progress", ProgressBar).add_class("active")
-        self.query_one("#flm-restart-status-line", Static).update(
-            f"[yellow]{_RESTART_SPINNER[0]} {self.restart_label}[/]"
-        )
+        self.restart_label = f"Restarting FLM, swapping to {new_value}"
+        line = self.query_one("#flm-restart-status-line", Static)
+        line.add_class("active")
+        line.update(f"[yellow]{_RESTART_SPINNER[0]} {self.restart_label}[/]")
 
         try:
             resp = await asyncio.to_thread(
@@ -406,8 +451,9 @@ class FlmModelPanel(Vertical):
         finally:
             self.restarting = False
             self.restart_label = ""
-            self.query_one("#flm-restart-progress", ProgressBar).remove_class("active")
-            self.query_one("#flm-restart-status-line", Static).update("")
+            line = self.query_one("#flm-restart-status-line", Static)
+            line.remove_class("active")
+            line.update("")
             self._set_select_enabled(True)
 
     async def _unload_model(self) -> None:
@@ -478,7 +524,13 @@ class FlmModelPanel(Vertical):
             )
             if not resp.get("ok"):
                 raise RuntimeError(str(resp.get("error") or "unknown error"))
-            self.app.notify("Pull cancelled", severity="information", timeout=4)
+            # Immediate visual feedback; the 1s poller will fire the toast
+            # once when state transitions to "cancelled" (with guard).
+            try:
+                text = self.query_one("#flm-pull-text", Static)
+                text.update("Cancelling…")
+            except Exception:
+                pass
         except Exception as exc:
             self.app.notify(
                 f"Cancel failed: {exc}", severity="error", timeout=6
