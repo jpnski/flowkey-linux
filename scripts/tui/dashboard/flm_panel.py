@@ -38,6 +38,16 @@ class FlmModelPanel(Vertical):
         padding: 0 1;
         margin: 0;
     }
+    #flm-model-grid {
+        layout: grid;
+        grid-size: 2;
+        grid-columns: 1fr 1fr;
+        grid-gutter: 1;
+        height: auto;
+    }
+    #flm-active-col, #flm-download-col {
+        height: auto;
+    }
     #flm-active-model-select { margin-bottom: 0; }
     #flm-download-select { margin-bottom: 0; }
     #flm-restart-status-line { display: none; }
@@ -74,6 +84,7 @@ class FlmModelPanel(Vertical):
         self._pull_spinner_index: int = 0
         self._pull_in_flight: bool = False
         self._pull_completed_key: str = ""  # guards against re-notifying on repeated polls of the same terminal state
+        self._pull_last_notify_at: float = 0.0  # monotonic cooldown: prevent toast re-fire within 6s
         self._daemon_reachable: bool = True
         self._last_model_change_at: float = 0.0
         # Whether the FLM server is reachable and the model is confirmed loaded.
@@ -94,25 +105,28 @@ class FlmModelPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Static("FLM Model", classes="panel-header")
-        yield Static("Active model", classes="subsection-header")
-        yield Select(
-            options=[("(no model loaded)", "")],
-            value="",
-            allow_blank=False,
-            prompt="Choose installed model…",
-            id="flm-active-model-select",
-            disabled=True,
-        )
-        yield Static("", id="flm-restart-status-line")
-        yield Static("Download a model", classes="subsection-header")
-        yield Select(
-            options=[("(select a model)", "")],
-            value="",
-            allow_blank=False,
-            prompt="(select a model)",
-            id="flm-download-select",
-            disabled=True,
-        )
+        with Vertical(id="flm-model-grid"):
+            with Vertical(id="flm-active-col"):
+                yield Static("Active model", classes="subsection-header")
+                yield Select(
+                    options=[("(no model loaded)", "")],
+                    value="",
+                    allow_blank=False,
+                    prompt="Choose installed model…",
+                    id="flm-active-model-select",
+                    disabled=True,
+                )
+                yield Static("", id="flm-restart-status-line")
+            with Vertical(id="flm-download-col"):
+                yield Static("Download a model", classes="subsection-header")
+                yield Select(
+                    options=[("(select a model)", "")],
+                    value="",
+                    allow_blank=False,
+                    prompt="(select a model)",
+                    id="flm-download-select",
+                    disabled=True,
+                )
         with Horizontal(id="flm-pull-row"):
             yield Static("", id="flm-pull-spinner")
             yield Static("", id="flm-pull-text", classes="pull-text")
@@ -258,8 +272,10 @@ class FlmModelPanel(Vertical):
             pull_row.remove_class("active")
             spinner.update("")
             text.update("")
-            if self._pull_completed_key != f"done:{model}":
+            now = time.monotonic()
+            if self._pull_completed_key != f"done:{model}" and now - self._pull_last_notify_at > 6.0:
                 self._pull_completed_key = f"done:{model}"
+                self._pull_last_notify_at = now
                 self.app.notify(f"Pulled new model: {model}", severity="information", timeout=4)
                 self.call_later(self._refresh_dashboard)
         elif state == "cancelled":
@@ -267,8 +283,10 @@ class FlmModelPanel(Vertical):
             pull_row.remove_class("active")
             spinner.update("")
             text.update("")
-            if self._pull_completed_key != "cancelled":
+            now = time.monotonic()
+            if self._pull_completed_key != "cancelled" and now - self._pull_last_notify_at > 6.0:
                 self._pull_completed_key = "cancelled"
+                self._pull_last_notify_at = now
                 self.app.notify("Pull cancelled", severity="information", timeout=4)
         elif state == "error":
             self._pull_in_flight = False
@@ -276,8 +294,10 @@ class FlmModelPanel(Vertical):
             spinner.update("")
             text.update("")
             error_key = f"error:{error or 'unknown'}"
-            if self._pull_completed_key != error_key:
+            now = time.monotonic()
+            if self._pull_completed_key != error_key and now - self._pull_last_notify_at > 6.0:
                 self._pull_completed_key = error_key
+                self._pull_last_notify_at = now
                 self.app.notify(f"Pull failed: {error or 'unknown error'}", severity="error", timeout=6)
         else:  # idle
             if self._pull_in_flight:

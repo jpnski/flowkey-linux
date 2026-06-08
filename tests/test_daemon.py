@@ -179,7 +179,7 @@ def test_post_config_snapshot_returns_flat_dashboard_fields(daemon_server):
         "flm_timeout_seconds",
         "history_store_text",
         "server",
-        "routing",
+        "input_processing",
         "notes",
         "tone",
         "hotkeys",

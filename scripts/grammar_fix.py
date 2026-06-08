@@ -61,7 +61,7 @@ def refresh_runtime_config() -> None:
     global HISTORY_PATH, HISTORY_STORE_TEXT, SERVER_CFG, SERVER_AUTO_START
     global SERVER_PERFORMANCE_MODE, SERVER_STARTUP_TIMEOUT_SECONDS
     global SERVER_EXTRA_ARGS, SERVER_LOG_TO_FILE, SERVER_LOG_FILE
-    global ROUTING_CFG, DICT_CFG, PROTECTED_WORDS
+    global INPUT_PROCESSING_CFG, DICT_CFG, PROTECTED_WORDS
 
     CONFIG = load_config()
     ENABLED = bool(CONFIG.get("enabled", True))
@@ -90,7 +90,7 @@ def refresh_runtime_config() -> None:
     SERVER_EXTRA_ARGS = [str(a) for a in (SERVER_CFG.get("serve_extra_args") or [])]
     SERVER_LOG_TO_FILE = bool(SERVER_CFG.get("log_to_file", True))
     SERVER_LOG_FILE = str(SERVER_CFG.get("log_file") or "flm_server.log")
-    ROUTING_CFG = CONFIG.get("routing") or {}
+    INPUT_PROCESSING_CFG = CONFIG.get("input_processing") or {}
     DICT_CFG = CONFIG.get("dictionary") or {}
     PROTECTED_WORDS = [str(w) for w in (DICT_CFG.get("protected_words") or []) if str(w).strip()]
 
@@ -324,7 +324,7 @@ def parse_mode() -> str:
 
 
 def _split_chunks(text: str, chunk_size: int) -> list[str]:
-    return llm_client.split_chunks(text, chunk_size, ROUTING_CFG)
+    return llm_client.split_chunks(text, chunk_size, INPUT_PROCESSING_CFG)
 
 
 def _select_runtime(mode: str, input_text: str) -> tuple[str, int, str]:
@@ -333,7 +333,7 @@ def _select_runtime(mode: str, input_text: str) -> tuple[str, int, str]:
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
-        routing_cfg=ROUTING_CFG,
+        input_processing_cfg=INPUT_PROCESSING_CFG,
         protected_words=PROTECTED_WORDS,
         modes_cfg=CONFIG.get("modes") or {},
     )
@@ -424,7 +424,7 @@ def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
-        routing_cfg=ROUTING_CFG,
+        input_processing_cfg=INPUT_PROCESSING_CFG,
         protected_words=PROTECTED_WORDS,
         modes_cfg=CONFIG.get("modes") or {},
     )
@@ -627,7 +627,7 @@ def build_config_snapshot() -> dict:
     """
     cfg = load_config()
     notes_cfg = cfg.get("notes") or {}
-    routing_cfg = cfg.get("routing") or {}
+    input_processing_cfg = cfg.get("input_processing") or {}
     hotkeys_cfg = cfg.get("hotkeys") or {}
     tone_cfg = ((cfg.get("modes") or {}).get("tone") or {})
     server_cfg = cfg.get("server") or {}
@@ -642,11 +642,11 @@ def build_config_snapshot() -> dict:
             "auto_start": bool(server_cfg.get("auto_start", True)),
             "performance_mode": str(server_cfg.get("performance_mode") or "balanced"),
         },
-        "routing": {
-            "enabled": bool(routing_cfg.get("enabled", True)),
-            "long_threshold_chars": int(routing_cfg.get("long_threshold_chars") or 1400),
-            "chunk_size_chars": int(routing_cfg.get("chunk_size_chars") or 1200),
-            "min_chunk_chars": int(routing_cfg.get("min_chunk_chars") or 700),
+        "input_processing": {
+            "enabled": bool(input_processing_cfg.get("enabled", True)),
+            "long_threshold_chars": int(input_processing_cfg.get("long_threshold_chars") or 1400),
+            "chunk_size_chars": int(input_processing_cfg.get("chunk_size_chars") or 1200),
+            "min_chunk_chars": int(input_processing_cfg.get("min_chunk_chars") or 700),
         },
         "notes": {
             "vault_dir": str(notes_cfg.get("vault_dir") or "$HOME/Documents/Flowkey_Notes"),

@@ -1,4 +1,4 @@
-"""LLM routing, prompt shaping, and text normalization helpers."""
+"""LLM request processing, prompt shaping, and text normalization helpers."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class LlmRuntimeConfig:
     model: str
     timeout_seconds: int
     server_auto_start: bool
-    routing_cfg: dict
+    input_processing_cfg: dict
     protected_words: list[str]
     modes_cfg: dict
 
@@ -53,7 +53,7 @@ def normalize_output(text: str) -> str:
     return normalized.strip()
 
 
-def split_chunks(text: str, chunk_size: int, routing_cfg: dict) -> list[str]:
+def split_chunks(text: str, chunk_size: int, input_processing_cfg: dict) -> list[str]:
     data = (text or "").strip()
     if len(data) <= chunk_size:
         return [data]
@@ -71,7 +71,7 @@ def split_chunks(text: str, chunk_size: int, routing_cfg: dict) -> list[str]:
         index = end
     chunks = [chunk for chunk in chunks if chunk]
 
-    min_chunk = int(routing_cfg.get("min_chunk_chars") or 700)
+    min_chunk = int(input_processing_cfg.get("min_chunk_chars") or 700)
     merged: list[str] = []
     for chunk in chunks:
         if merged and len(chunk) < min_chunk:
@@ -83,7 +83,7 @@ def split_chunks(text: str, chunk_size: int, routing_cfg: dict) -> list[str]:
 
 def select_runtime(runtime: LlmRuntimeConfig, mode: str, input_text: str) -> tuple[str, int, str]:
     text_len = len(input_text or "")
-    routing_enabled = bool(runtime.routing_cfg.get("enabled", True))
+    input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
     model = runtime.model
 
     if is_prompt_mode(mode):
@@ -113,8 +113,8 @@ def select_runtime(runtime: LlmRuntimeConfig, mode: str, input_text: str) -> tup
             max_tokens = 180
             strategy = "grammar_long"
 
-    if not routing_enabled:
-        strategy = f"{strategy}_noroute"
+    if not input_processing_enabled:
+        strategy = f"{strategy}_noprocess"
     return model, max_tokens, strategy
 
 
@@ -263,9 +263,9 @@ def call_flm(
 
     masked_input, dict_mapping = dict_protect(input_text, runtime.protected_words)
     model, max_tokens, strategy = select_runtime(runtime, mode, masked_input)
-    routing_enabled = bool(runtime.routing_cfg.get("enabled", True))
-    long_threshold = int(runtime.routing_cfg.get("long_threshold_chars") or 1400)
-    chunk_size = int(runtime.routing_cfg.get("chunk_size_chars") or 1200)
+    input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
+    long_threshold = int(runtime.input_processing_cfg.get("long_threshold_chars") or 1400)
+    chunk_size = int(runtime.input_processing_cfg.get("chunk_size_chars") or 1200)
     max_chunks = 3
 
     def remaining_timeout() -> int:
@@ -279,8 +279,8 @@ def call_flm(
             "Return only corrected text."
         )
 
-    if routing_enabled and len(masked_input or "") >= long_threshold:
-        chunks = split_chunks(masked_input, chunk_size, runtime.routing_cfg)[:max_chunks]
+    if input_processing_enabled and len(masked_input or "") >= long_threshold:
+        chunks = split_chunks(masked_input, chunk_size, runtime.input_processing_cfg)[:max_chunks]
         if mode == "grammar":
             out_parts: list[str] = []
             model_used = model

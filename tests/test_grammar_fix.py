@@ -25,7 +25,7 @@ def test_load_config_merges_nested_sections(fresh_modules):
             {
                 "flm_model": "custom:model",
                 "server": {"auto_start": False},
-                "routing": {"chunk_size_chars": 900},
+                "input_processing": {"chunk_size_chars": 900},
                 "dictionary": {"protected_words": ["Flowkey"]},
                 "modes": {"grammar": {"shortcut": "Ctrl+Alt+G"}},
             }
@@ -38,7 +38,7 @@ def test_load_config_merges_nested_sections(fresh_modules):
     assert cfg["flm_model"] == "custom:model"
     assert cfg["server"]["auto_start"] is False
     assert cfg["server"]["performance_mode"] == "balanced"
-    assert cfg["routing"]["chunk_size_chars"] == 900
+    assert cfg["input_processing"]["chunk_size_chars"] == 900
     assert cfg["dictionary"]["protected_words"] == ["Flowkey"]
     assert cfg["modes"]["grammar"]["shortcut"] == "Ctrl+Alt+G"
     assert "prompt" in cfg["modes"]

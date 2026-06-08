@@ -45,7 +45,7 @@ DEFAULT_CONFIG = {
         "log_to_file": False,
         "log_file": "flm_server.log",
     },
-    "routing": {
+    "input_processing": {
         "enabled": True,
         "long_threshold_chars": 1400,
         "chunk_size_chars": 1200,
@@ -177,7 +177,7 @@ _PATCH_SERVER_KEYS = frozenset({
     "performance_mode",
     "startup_timeout_seconds",
 })
-_PATCH_ROUTING_KEYS = frozenset({
+_PATCH_INPUT_PROCESSING_KEYS = frozenset({
     "chunk_size_chars",
     "enabled",
     "long_threshold_chars",
@@ -244,8 +244,8 @@ def filter_config_patch(patch: dict) -> dict:
             filtered = {k: v for k, v in value.items() if k in _PATCH_SERVER_KEYS}
             if filtered:
                 out[key] = filtered
-        elif key == "routing" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_ROUTING_KEYS}
+        elif key == "input_processing" and isinstance(value, dict):
+            filtered = {k: v for k, v in value.items() if k in _PATCH_INPUT_PROCESSING_KEYS}
             if filtered:
                 out[key] = filtered
         elif key == "notes" and isinstance(value, dict):
