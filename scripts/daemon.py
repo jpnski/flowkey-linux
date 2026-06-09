@@ -193,20 +193,28 @@ def _act_stop(_args: dict) -> str:
     return "stopped" if grammar_fix.stop_flm_server(force=True) else "not_running"
 
 
-def _act_performance(_args: dict) -> str:
-    return grammar_fix.get_current_performance_mode()
+def _act_power_mode(_args: dict) -> str:
+    return grammar_fix.get_power_mode()
 
 
-def _act_toggle_performance(_args: dict) -> str:
-    return grammar_fix.toggle_performance_mode()
+def _act_toggle_power_mode(_args: dict) -> str:
+    return grammar_fix.toggle_power_mode()
 
 
-def _act_set_perf_balanced(_args: dict) -> str:
-    return grammar_fix.set_performance_mode("balanced")
+def _act_set_power_balanced(_args: dict) -> str:
+    return grammar_fix.set_power_mode("balanced")
 
 
-def _act_set_perf_max(_args: dict) -> str:
-    return grammar_fix.set_performance_mode("max")
+def _act_set_power_turbo(_args: dict) -> str:
+    return grammar_fix.set_power_mode("turbo")
+
+
+def _act_set_power_performance(_args: dict) -> str:
+    return grammar_fix.set_power_mode("performance")
+
+
+def _act_set_power_powersaver(_args: dict) -> str:
+    return grammar_fix.set_power_mode("powersaver")
 
 
 def _act_history_text_status(_args: dict) -> str:
@@ -486,10 +494,12 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
     "warmup": _act_warmup,
     "restart": _act_restart,
     "stop": _act_stop,
-    "performance": _act_performance,
-    "toggle_performance": _act_toggle_performance,
-    "set_perf_balanced": _act_set_perf_balanced,
-    "set_perf_max": _act_set_perf_max,
+    "power_mode": _act_power_mode,
+    "toggle_power_mode": _act_toggle_power_mode,
+    "set_power_balanced": _act_set_power_balanced,
+    "set_power_turbo": _act_set_power_turbo,
+    "set_power_performance": _act_set_power_performance,
+    "set_power_powersaver": _act_set_power_powersaver,
     "history_text_status": _act_history_text_status,
     "toggle_history_text": _act_toggle_history_text,
     "set_history_visible": _act_set_history_visible,
@@ -534,7 +544,8 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
 _write_lock = threading.Lock()
 _WRITE_ACTIONS = {
     "start", "warmup", "restart", "stop",
-    "toggle_performance", "set_perf_balanced", "set_perf_max",
+    "toggle_power_mode", "set_power_balanced", "set_power_turbo",
+    "set_power_performance", "set_power_powersaver",
     "toggle_history_text", "set_history_visible", "set_history_redacted",
     "cycle_tone_preset", "set_tone", "set_tone_formal", "set_tone_casual", "set_tone_friendly",
     "pull_model", "remove_model", "apply_config_patch", "update_apply",

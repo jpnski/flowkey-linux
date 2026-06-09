@@ -433,7 +433,7 @@ class FlmModelPanel(Vertical):
 
         try:
             resp = await asyncio.to_thread(
-                _daemon_post, "apply_config_patch", {"patch": {"flm_model": new_value}},
+                _daemon_post, "apply_config_patch", {"patch": {"flm_config": {"active_model": new_value}}},
                 timeout=_DAEMON_TIMEOUT_MODEL_CHANGE,
             )
             if not resp.get("ok"):

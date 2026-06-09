@@ -66,7 +66,7 @@ class ChatSettingsPanel(Vertical):
         super().__init__(**kwargs)
         self._current_preset: str = "formal"
         self._auto_start: bool = True
-        self._performance_mode: str = "balanced"
+        self._power_mode: str = "balanced"
         self._input_processing_enabled: bool = True
 
     def compose(self) -> ComposeResult:
@@ -74,10 +74,12 @@ class ChatSettingsPanel(Vertical):
         with Horizontal(classes="settings-row"):
             # -- Performance Mode --
             with Vertical(classes="settings-col"):
-                yield Static("Performance mode", classes="col-label")
-                with RadioSet(id="perf-radio-set"):
-                    yield RadioButton("Balanced", id="perf-balanced")
-                    yield RadioButton("Max", id="perf-max")
+                yield Static("Power mode", classes="col-label")
+                with RadioSet(id="power-radio-set"):
+                    yield RadioButton("Power Saver", id="powersaver")
+                    yield RadioButton("Balanced", id="balanced")
+                    yield RadioButton("Performance", id="performance")
+                    yield RadioButton("Turbo", id="turbo")
             # -- Response Tone --
             with Vertical(classes="settings-col"):
                 yield Static("Response tone", classes="col-label")
@@ -110,18 +112,18 @@ class ChatSettingsPanel(Vertical):
         except Exception:
             pass
 
-    def update_server_settings(self, auto_start: bool, performance_mode: str) -> None:
+    def update_server_settings(self, auto_start: bool, power_mode: str) -> None:
         """Set both server radio sets from a config snapshot."""
         self._auto_start = auto_start
-        self._performance_mode = performance_mode
+        self._power_mode = power_mode
         try:
             auto_radio = self.query_one("#auto-start-radio-set", RadioSet)
             auto_radio.value = "auto-start-on" if auto_start else "auto-start-off"
         except Exception:
             pass
         try:
-            perf_radio = self.query_one("#perf-radio-set", RadioSet)
-            perf_radio.value = "perf-balanced" if performance_mode == "balanced" else "perf-max"
+            perf_radio = self.query_one("#power-radio-set", RadioSet)
+            perf_radio.value = power_mode if power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
         except Exception:
             pass
 
@@ -156,21 +158,15 @@ class ChatSettingsPanel(Vertical):
                     exclusive=True,
                 )
 
-        elif radio_set_id == "perf-radio-set":
-            if radio_id == "perf-balanced":
-                if self._performance_mode == "balanced":
-                    return
-                self.run_worker(
-                    partial(self._apply_server_patch, {"performance_mode": "balanced"}),
-                    exclusive=True,
-                )
-            elif radio_id == "perf-max":
-                if self._performance_mode == "max":
-                    return
-                self.run_worker(
-                    partial(self._apply_server_patch, {"performance_mode": "max"}),
-                    exclusive=True,
-                )
+        elif radio_set_id == "power-radio-set":
+            if radio_id not in {"powersaver", "balanced", "performance", "turbo"}:
+                return
+            if radio_id == self._power_mode:
+                return
+            self.run_worker(
+                partial(self._apply_server_patch, {"power_mode": radio_id}),
+                exclusive=True,
+            )
 
         elif radio_set_id == "tone-radio-set":
             preset = _RADIO_TO_PRESET.get(radio_id)
@@ -193,14 +189,17 @@ class ChatSettingsPanel(Vertical):
 
     async def _apply_server_patch(self, server_patch: dict) -> None:
         old_auto_start = self._auto_start
-        old_perf = self._performance_mode
+        old_perf = self._power_mode
 
-        # Optimistic update.
-        if "auto_start" in server_patch:
-            self._auto_start = server_patch["auto_start"]
-        if "performance_mode" in server_patch:
-            self._performance_mode = server_patch["performance_mode"]
-        self.update_server_settings(self._auto_start, self._performance_mode)
+        if "power_mode" in server_patch:
+            self._power_mode = server_patch["power_mode"]
+
+        self.update_server_settings(self._auto_start, self._power_mode)
+
+        if not resp.get("ok"):
+            self._power_mode = old_perf
+
+            self.update_server_settings(self._auto_start, self._power_mode)
 
         resp = await asyncio.to_thread(
             _daemon_post, "apply_config_patch",
@@ -216,8 +215,8 @@ class ChatSettingsPanel(Vertical):
         else:
             # Revert on failure.
             self._auto_start = old_auto_start
-            self._performance_mode = old_perf
-            self.update_server_settings(self._auto_start, self._performance_mode)
+            self._power_mode = old_perf
+            self.update_server_settings(self._auto_start, self._power_mode)
             self.app.notify(
                 f"Failed to update: {resp.get('error', 'unknown')}",
                 severity="error", timeout=5,

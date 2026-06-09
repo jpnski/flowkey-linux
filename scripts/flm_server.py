@@ -19,7 +19,7 @@ from subprocess_util import run_hidden
 
 log = logging.getLogger("flowkey.flmserver")
 
-PERF_TO_PMODE = {"balanced": "turbo", "max": "turbo"}
+PERF_TO_PMODE = {"powersaver": "powersaver", "balanced": "balanced", "performance": "performance", "turbo": "turbo"}
 
 # FastFlowLM upstream release feed.
 FLM_RELEASES_API = "https://api.github.com/repos/FastFlowLM/FastFlowLM/releases/latest"
@@ -31,7 +31,7 @@ class FlmServerSettings:
     base_url: str
     model: str
     timeout_seconds: int
-    performance_mode: str
+    power_mode: str
     startup_timeout_seconds: int
     extra_args: list[str]
     log_to_file: bool
@@ -164,7 +164,7 @@ def start_flm_server(
         return "already_running"
 
     host, port = flm_host_port(settings.base_url)
-    perf_mode = settings.performance_mode if settings.performance_mode in {"balanced", "max"} else "balanced"
+    perf_mode = settings.power_mode if settings.power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
     pmode = PERF_TO_PMODE.get(perf_mode, "turbo")
     args = [
         "flm",

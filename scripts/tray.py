@@ -91,14 +91,24 @@ def _run_x11() -> None:
         resp = _daemon_post("warmup")
         _notify("Server", resp.get("result") or "warming up")
 
-    def _set_perf_balanced() -> None:
-        resp = _daemon_post("set_perf_balanced")
-        _notify("Performance", resp.get("result") or "balanced")
+    def _set_power_balanced() -> None:
+        resp = _daemon_post("set_power_balanced")
+        _notify("Power Mode", resp.get("result") or "balanced")
         _update_menu()
 
-    def _set_perf_max() -> None:
-        resp = _daemon_post("set_perf_max")
-        _notify("Performance", resp.get("result") or "max")
+    def _set_power_turbo() -> None:
+        resp = _daemon_post("set_power_turbo")
+        _notify("Power Mode", resp.get("result") or "turbo")
+        _update_menu()
+
+    def _set_power_performance() -> None:
+        resp = _daemon_post("set_power_performance")
+        _notify("Power Mode", resp.get("result") or "performance")
+        _update_menu()
+
+    def _set_power_powersaver() -> None:
+        resp = _daemon_post("set_power_powersaver")
+        _notify("Power Mode", resp.get("result") or "powersaver")
         _update_menu()
 
     def _on_exit() -> None:
@@ -106,25 +116,27 @@ def _run_x11() -> None:
         os._exit(0)
 
     # Current performance mode for checkmark
-    _perf_mode: str = ""
+    _power_mode: str = ""
 
-    def _refresh_perf() -> str:
-        nonlocal _perf_mode
-        resp = _daemon_get("performance")
-        _perf_mode = str(resp.get("result") or "balanced").strip().lower()
-        return _perf_mode
+    def _refresh_power_mode() -> str:
+        nonlocal _power_mode
+        resp = _daemon_get("power_mode")
+        _power_mode = str(resp.get("result") or "balanced").strip().lower()
+        return _power_mode
 
-    _refresh_perf()
+    _refresh_power_mode()
+
+        _refresh_power_mode()
 
     def _update_menu() -> None:
-        _refresh_perf()
+        _refresh_power_mode()
         icon.menu = _build_menu()
         icon.update_menu()
 
     def _build_menu():
         import pystray as _ps
 
-        perf_mode = _refresh_perf()
+        power_mode = _refresh_power_mode()
         return _ps.Menu(
             _ps.MenuItem("Open TUI", _open_tui, default=True),
             _ps.Menu.SEPARATOR,
@@ -138,17 +150,27 @@ def _run_x11() -> None:
                 ),
             ),
             _ps.MenuItem(
-                "Performance",
+                "Power Mode",
                 _ps.Menu(
                     _ps.MenuItem(
-                        "Balanced",
-                        _set_perf_balanced,
-                        checked=lambda: perf_mode == "balanced",
+                        "Power Saver",
+                        _set_power_powersaver,
+                        checked=lambda: power_mode == "powersaver",
                     ),
                     _ps.MenuItem(
-                        "Max",
-                        _set_perf_max,
-                        checked=lambda: perf_mode == "max",
+                        "Balanced",
+                        _set_power_balanced,
+                        checked=lambda: power_mode == "balanced",
+                    ),
+                    _ps.MenuItem(
+                        "Performance",
+                        _set_power_performance,
+                        checked=lambda: power_mode == "performance",
+                    ),
+                    _ps.MenuItem(
+                        "Turbo",
+                        _set_power_turbo,
+                        checked=lambda: power_mode == "turbo",
                     ),
                 ),
             ),

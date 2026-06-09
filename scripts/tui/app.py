@@ -180,23 +180,20 @@ class FlowkeyTUI(App):
                 daemon=True,
             ).start()
 
-    def watch_dark(self, dark: bool) -> None:
+    def watch_theme(self, theme: str) -> None:
         """Auto-save theme when user changes it via command palette.
 
-        ``dark`` is a Textual reactive — it fires on any theme change
-        (dark ↔ light or switching between two dark themes). We save
-        ``self.theme`` to capture the exact theme name.
+        ``theme`` is a Textual reactive — this fires on every theme change
+        (dark↔light and switching between two themes of the same darkness).
         """
         if not self._theme_ready:
             return  # skip the initial apply from on_mount
         try:
-            theme = self.theme
             cfg = _config.load_config(_paths.CONFIG_FILE)
             cfg["theme"] = theme
             _config.save_config(_paths.CONFIG_FILE, cfg)
-            log.info("theme saved: %s", theme)
-        except Exception as exc:
-            log.warning("failed to persist theme: %s", exc)
+        except Exception:
+            pass
 
     def _watch_parent(self, parent_pid: int) -> None:
         """Exit when parent process disappears."""

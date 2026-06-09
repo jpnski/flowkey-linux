@@ -58,7 +58,7 @@ class ConfigPane(Pane):
         model_loaded = False
         if config_resp.get("ok"):
             cfg = config_resp.get("result") or {}
-            active = str(cfg.get("flm_model") or "")
+            active = str(cfg.get("flm_config", {}).get("active_model") or "")
             model_loaded = bool(cfg.get("flm_model_loaded", False))
 
         # Feed tone preset + server settings to ChatSettingsPanel.
@@ -67,7 +67,7 @@ class ConfigPane(Pane):
         if config_resp.get("ok"):
             cfg = config_resp.get("result") or {}
             tone_preset = str(cfg.get("tone", {}).get("preset", "formal"))
-            server_cfg = cfg.get("server") or {}
+            server_cfg = cfg.get("flm_serving_config") or {}
 
         # Fetch FLM runtime version info (uses server-side cache, ~24h TTL).
         flm_version_resp = _daemon_post("flm_update_check", {"cache_only": True})
@@ -89,7 +89,8 @@ class ConfigPane(Pane):
         self.call_later(self._update_input_processing_panel, input_processing_cfg)
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded)
-        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, input_processing_cfg)
+        power_mode = cfg.get("flm_config", {}).get("power_mode", "balanced")
+        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, input_processing_cfg, power_mode)
 
     def _update_flm_runtime_panel(self, data: dict) -> None:
         try:
@@ -126,7 +127,8 @@ class ConfigPane(Pane):
                             daemon_reachable=True)
 
     def _update_chat_settings_panel(self, tone_preset: str, server_cfg: dict,
-                                    input_processing_cfg: dict | None = None) -> None:
+                                    input_processing_cfg: dict | None = None,
+                                    power_mode: str = "balanced") -> None:
         try:
             panel = self.query_one(ChatSettingsPanel)
         except Exception:
@@ -134,7 +136,7 @@ class ConfigPane(Pane):
         panel.update_tone(tone_preset)
         panel.update_server_settings(
             auto_start=bool(server_cfg.get("auto_start", True)),
-            performance_mode=str(server_cfg.get("performance_mode", "balanced")),
+            power_mode=str(power_mode),
         )
         if input_processing_cfg is not None:
             panel.update_input_processing(

@@ -47,7 +47,8 @@ def test_actions_count_and_expected_names(daemon_module):
     # Late v1.4.0 added flm_update_check, bench_start/status/history,
     # v2.0.0: removed chat_reload, chat_restart (chat_popup deleted) -> 46.
     # v2.0.0+flm-panel: added pull_cancel -> 47.
-    assert len(daemon_module.ACTIONS) == 47
+    # v2.0.0+power-mode: renamed performance→power_mode, set_perf_*→set_power_* -> 49
+    assert len(daemon_module.ACTIONS) == 49
     assert "version" in daemon_module.ACTIONS
     assert "apply_config_patch" in daemon_module.ACTIONS
     assert "chat_send_selection" in daemon_module.ACTIONS
@@ -174,11 +175,9 @@ def test_post_config_snapshot_returns_flat_dashboard_fields(daemon_server):
     assert status == 200
     assert set(payload["result"]) >= {
         "version",
-        "flm_base_url",
-        "flm_model",
-        "flm_timeout_seconds",
-        "history_store_text",
-        "server",
+        "flm_config",
+        "flm_serving_config",
+        "history_config",
         "input_processing",
         "notes",
         "tone",
@@ -190,14 +189,14 @@ def test_post_config_snapshot_returns_flat_dashboard_fields(daemon_server):
 
 def test_apply_config_patch_persists_nested_value(daemon_server):
     daemon_module, base_url = daemon_server
-    body = json.dumps({"args": {"patch": {"server": {"auto_start": False}}}}).encode("utf-8")
+    body = json.dumps({"args": {"patch": {"flm_serving_config": {"auto_start": False}}}}).encode("utf-8")
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
     saved = json.loads(daemon_module.grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
     assert payload["result"] == "ok"
-    assert saved["server"]["auto_start"] is False
+    assert saved["flm_serving_config"]["auto_start"] is False
 
 
 def test_apply_config_patch_model_change_validates_and_persists(daemon_server, monkeypatch):
@@ -210,14 +209,14 @@ def test_apply_config_patch_model_change_validates_and_persists(daemon_server, m
     monkeypatch.setattr(daemon_module.grammar_fix, "_warmup_request", lambda model: None)
     monkeypatch.setattr(daemon_module.grammar_fix, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(daemon_module.grammar_fix, "start_flm_server", lambda force_restart=False: "started")
-    body = json.dumps({"args": {"patch": {"flm_model": "other:1b"}}}).encode("utf-8")
+    body = json.dumps({"args": {"patch": {"flm_config": {"active_model": "other:1b"}}}}).encode("utf-8")
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
     saved = json.loads(daemon_module.grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
     assert payload["result"] == "model=other:1b restarted"
-    assert saved["flm_model"] == "other:1b"
+    assert saved["flm_config"]["active_model"] == "other:1b"
     assert daemon_module.grammar_fix.FLM_MODEL == "other:1b"
 
 

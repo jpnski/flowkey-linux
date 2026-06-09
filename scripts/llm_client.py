@@ -71,7 +71,7 @@ def split_chunks(text: str, chunk_size: int, input_processing_cfg: dict) -> list
         index = end
     chunks = [chunk for chunk in chunks if chunk]
 
-    min_chunk = int(input_processing_cfg.get("min") or 200)
+    min_chunk = int(input_processing_cfg.get("min_chunk_size") or 200)
     merged: list[str] = []
     for chunk in chunks:
         if merged and len(chunk) < min_chunk:
@@ -81,41 +81,35 @@ def split_chunks(text: str, chunk_size: int, input_processing_cfg: dict) -> list
     return merged
 
 
-def select_runtime(runtime: LlmRuntimeConfig, mode: str, input_text: str) -> tuple[str, int, str]:
+_SHORT_TEXT_THRESHOLD = 350
+_MEDIUM_TEXT_THRESHOLD = 1200
+
+
+def resolve_token_budget(runtime: LlmRuntimeConfig, mode: str, input_text: str) -> tuple[int, str]:
+    """Return (max_tokens, strategy_label) based on mode config and input length."""
     text_len = len(input_text or "")
     input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
-    model = runtime.model
 
-    if is_prompt_mode(mode):
-        # Prompt-mode output is structurally LARGER than the input — short
-        # bullet-point input expands into a full Claude-style XML prompt
-        # (<task> + <context> + <constraints> + <output_format>). Pre-v1.2.2
-        # caps (140/220/300) truncated the output mid-section. Roughly 5x the
-        # grammar-mode budget; clamps high enough that even one-line inputs
-        # produce a complete structured prompt.
-        if text_len <= 350:
-            max_tokens = 700
-            strategy = "prompt_short"
-        elif text_len <= 1200:
-            max_tokens = 900
-            strategy = "prompt_medium"
-        else:
-            max_tokens = 1200
-            strategy = "prompt_long"
+    # Read per-mode token budgets from config, fall back to grammar-like values.
+    mode_cfg = (runtime.modes_cfg or {}).get(mode) or {}
+    budgets = mode_cfg.get("max_tokens") or {}
+    short_budget = int(budgets.get("short", 160))
+    medium_budget = int(budgets.get("medium", 220))
+    long_budget = int(budgets.get("long", 180))
+
+    if text_len <= _SHORT_TEXT_THRESHOLD:
+        max_tokens = short_budget
+        strategy = f"{mode}_short"
+    elif text_len <= _MEDIUM_TEXT_THRESHOLD:
+        max_tokens = medium_budget
+        strategy = f"{mode}_medium"
     else:
-        if text_len <= 350:
-            max_tokens = 160
-            strategy = "grammar_short"
-        elif text_len <= 1200:
-            max_tokens = 220
-            strategy = "grammar_medium"
-        else:
-            max_tokens = 180
-            strategy = "grammar_long"
+        max_tokens = long_budget
+        strategy = f"{mode}_long"
 
     if not input_processing_enabled:
         strategy = f"{strategy}_noprocess"
-    return model, max_tokens, strategy
+    return max_tokens, strategy
 
 
 def line_reuse_ratio(input_text: str, output_text: str) -> float:
@@ -262,7 +256,8 @@ def call_flm(
     deadline = started + runtime.timeout_seconds
 
     masked_input, dict_mapping = dict_protect(input_text, runtime.protected_words)
-    model, max_tokens, strategy = select_runtime(runtime, mode, masked_input)
+    max_tokens, strategy = resolve_token_budget(runtime, mode, masked_input)
+    model = runtime.model
     input_processing_enabled = bool(runtime.input_processing_cfg.get("enabled", True))
     long_threshold = int(runtime.input_processing_cfg.get("input_length_threshold") or 4000)
     chunk_size = int(runtime.input_processing_cfg.get("chunk_size") or 800)

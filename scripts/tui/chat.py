@@ -309,9 +309,9 @@ class ChatWidget(Container):
             )
             if resp.get("ok") and isinstance(resp.get("result"), dict):
                 result = resp["result"]
-                self._llm_base_url = str(result.get("flm_base_url") or self._llm_base_url)
+                self._llm_base_url = str(result.get("flm_config", {}).get("api_url") or self._llm_base_url)
 
-                daemon_model = str(result.get("flm_model") or "")
+                daemon_model = str(result.get("flm_config", {}).get("active_model") or "")
                 # True when the FLM server is reachable (TCP port open). The
                 # config patch flow additionally runs a warmup request before
                 # returning, so by the time `flm_model_loaded` goes True the
@@ -539,6 +539,21 @@ class ChatWidget(Container):
 
     def _stream_llm_response(self, user_text: str, history: list[dict]) -> None:
         """Stream LLM response via OpenAI-compatible SSE endpoint."""
+        # Ensure the FLM server is running before attempting the chat request.
+        try:
+            resp = loopback_http.json_post(
+                f"{DAEMON_BASE_URL}/action/start",
+                {"args": {}},
+                headers=loopback_http.daemon_headers(),
+                timeout=30.0,
+            )
+            if not resp.get("ok"):
+                raise RuntimeError(str(resp.get("error") or "start failed"))
+        except Exception as exc:
+            self.call_later(self._finalize_stream,
+                            f"[red]Could not start LLM server: {exc}[/]")
+            return
+
         import urllib.request
 
         messages = [{"role": "system", "content": "You are a concise, helpful local assistant."}]

@@ -16,7 +16,7 @@ from tui.dashboard._daemon import _daemon_post
 # (label, config_key, min_value, default, max_value)
 _PARAMS: list[tuple[str, str, int, int, int]] = [
     ("Input length threshold", "input_length_threshold", 128, 4_000, 100_000),
-    ("Min chunk size",         "min",                    10,    200,   5_000),
+    ("Min chunk size",         "min_chunk_size",         10,    200,   5_000),
     ("Chunk size",             "chunk_size",             50,    800,  20_000),
 ]
 

@@ -84,7 +84,7 @@ class BenchmarkPane(Pane):
         cfg_resp = _daemon_post("config_snapshot")
         model = ""
         if cfg_resp.get("ok"):
-            model = str((cfg_resp.get("result") or {}).get("flm_model", ""))
+            model = str((cfg_resp.get("result") or {}).get("flm_config", {}).get("active_model", ""))
         if model:
             resp = _daemon_post("bench_start", {"model": model})
             result = _resolve_result(resp)

@@ -119,7 +119,7 @@ def read_config() -> dict:
         merged[action] = str(hotkeys_cfg.get(action, default_key))
     HOTKEY_BINDINGS = merged
 
-    FLM_TIMEOUT_SECONDS = int(cfg.get("flm_timeout_seconds") or 60)
+    FLM_TIMEOUT_SECONDS = int(cfg.get("flm_config", {}).get("api_call_timeout_s") or 60)
     return cfg
 
 

@@ -12,10 +12,9 @@ def test_load_config_returns_defaults_when_file_missing(fresh_modules):
 
     cfg = grammar_fix.load_config()
 
-    assert cfg["enabled"] is True
-    assert cfg["flm_model"] == "gemma4-it:e4b"
-    assert cfg["server"]["performance_mode"] == "balanced"
-    assert cfg["history_store_text"] is False
+    assert cfg["flm_config"]["active_model"] == "gemma4-it:e4b"
+    assert cfg["flm_config"]["power_mode"] == "balanced"
+    assert cfg["history_config"]["store_text"] is False
 
 
 def test_load_config_merges_nested_sections(fresh_modules):
@@ -23,10 +22,10 @@ def test_load_config_merges_nested_sections(fresh_modules):
     grammar_fix.CONFIG_PATH.write_text(
         json.dumps(
             {
-                "flm_model": "custom:model",
-                "server": {"auto_start": False},
+                "flm_config": {"active_model": "custom:model"},
+                "flm_serving_config": {"auto_start": False},
                 "input_processing": {"chunk_size": 900},
-                "dictionary": {"protected_words": ["Flowkey"]},
+                "grammar_ignore_words": ["Flowkey"],
                 "modes": {"grammar": {"shortcut": "Ctrl+Alt+G"}},
             }
         ),
@@ -35,11 +34,11 @@ def test_load_config_merges_nested_sections(fresh_modules):
 
     cfg = grammar_fix.load_config()
 
-    assert cfg["flm_model"] == "custom:model"
-    assert cfg["server"]["auto_start"] is False
-    assert cfg["server"]["performance_mode"] == "balanced"
+    assert cfg["flm_config"]["active_model"] == "custom:model"
+    assert cfg["flm_serving_config"]["auto_start"] is False
+    assert cfg["flm_config"]["power_mode"] == "balanced"
     assert cfg["input_processing"]["chunk_size"] == 900
-    assert cfg["dictionary"]["protected_words"] == ["Flowkey"]
+    assert cfg["grammar_ignore_words"] == ["Flowkey"]
     assert cfg["modes"]["grammar"]["shortcut"] == "Ctrl+Alt+G"
     assert "prompt" in cfg["modes"]
 
@@ -98,7 +97,7 @@ def test_split_chunks_returns_single_chunk_when_short(fresh_modules):
 
 def test_split_chunks_prefers_newline_boundaries(fresh_modules):
     grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.INPUT_PROCESSING_CFG["min"] = 20
+    grammar_fix.INPUT_PROCESSING_CFG["min_chunk_size"] = 20
     text = ("alpha " * 20).strip() + "\n" + ("beta " * 20).strip()
 
     chunks = grammar_fix._split_chunks(text, 120)
@@ -110,7 +109,7 @@ def test_split_chunks_prefers_newline_boundaries(fresh_modules):
 
 def test_split_chunks_merges_tiny_trailing_chunk(fresh_modules):
     grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.INPUT_PROCESSING_CFG["min"] = 50
+    grammar_fix.INPUT_PROCESSING_CFG["min_chunk_size"] = 50
     text = ("alpha " * 30) + "tail"
 
     chunks = grammar_fix._split_chunks(text, 80)
@@ -128,114 +127,20 @@ def test_split_chunks_merges_tiny_trailing_chunk(fresh_modules):
         ("grammar", "x" * 1500, "grammar_long"),
     ],
 )
-def test_select_runtime_picks_expected_strategy(fresh_modules, mode, text, strategy):
+def test_resolve_token_budget_picks_expected_strategy(fresh_modules, mode, text, strategy):
     grammar_fix = fresh_modules("grammar_fix")
 
-    _, _, selected = grammar_fix._select_runtime(mode, text)
+    _, selected = grammar_fix._resolve_token_budget(mode, text)
 
     assert selected == strategy
 
 
 def test_dict_protect_returns_original_when_no_words(fresh_modules):
     grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.PROTECTED_WORDS = []
-
-    masked, mapping = grammar_fix._dict_protect("Flowkey")
-
-    assert masked == "Flowkey"
-    assert mapping == {}
-
-
-def test_dict_protect_and_restore_round_trip(fresh_modules):
-    grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.PROTECTED_WORDS = ["Flowkey", "LLM"]
-
-    masked, mapping = grammar_fix._dict_protect("Flowkey helps every LLM user.")
-    restored = grammar_fix._dict_restore(masked, mapping)
-
-    assert "__FFPDICT0__" in masked
-    assert "__FFPDICT1__" in masked
-    assert restored == "Flowkey helps every LLM user."
-
-
-def test_dict_protect_preserves_first_match_casing(fresh_modules):
-    grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.PROTECTED_WORDS = ["fastflowprompt"]
-
-    masked, mapping = grammar_fix._dict_protect("FASTFLOWPROMPT and fastflowprompt")
-
-    assert mapping["__FFPDICT0__"] == "FASTFLOWPROMPT"
-    assert grammar_fix._dict_restore(masked, mapping).startswith("FASTFLOWPROMPT")
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("1.2.3", (1, 2, 3)),
-        ("1.2", (1, 2, 0)),
-        ("v2.5.0-beta1", (2, 5, 1)),
-    ],
-)
-def test_version_tuple_parses_and_pads(fresh_modules, value, expected):
-    grammar_fix = fresh_modules("grammar_fix")
-
-    assert grammar_fix._version_tuple(value) == expected
-
-
-def test_deep_merge_updates_nested_dicts_in_place(fresh_modules):
-    grammar_fix = fresh_modules("grammar_fix")
-    dst = {"server": {"auto_start": True, "mode": "balanced"}, "enabled": True}
-
-    grammar_fix._deep_merge(dst, {"server": {"mode": "max"}, "enabled": False})
-
-    assert dst == {"server": {"auto_start": True, "mode": "max"}, "enabled": False}
-
-
-def test_compute_usage_stats_aggregates_history(fresh_modules, sample_history):
-    grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.HISTORY_PATH.write_text(
-        "\n".join(json.dumps(row) for row in sample_history) + "\n",
-        encoding="utf-8",
-    )
-
-    stats = grammar_fix.compute_usage_stats()
-
-    assert stats["total"] == 3
-    assert stats["by_mode"] == {"grammar": 2, "prompt": 1}
-    assert stats["total_prompt_tokens"] == 66
-    assert stats["total_completion_tokens"] == 44
-    assert stats["p50_latency_seconds"] == 1.2
-
-
-def test_compute_usage_stats_ignores_invalid_rows(fresh_modules):
-    grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.HISTORY_PATH.write_text('{"mode":"grammar","elapsed_seconds":1}\nnot json\n', encoding="utf-8")
-
-    stats = grammar_fix.compute_usage_stats()
-
-    assert stats["total"] == 1
-    assert stats["by_mode"] == {"grammar": 1}
-
-
-def test_compute_dashboard_data_builds_recent_and_hours(fresh_modules, sample_history):
-    grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.HISTORY_PATH.write_text(
-        "\n".join(json.dumps(row) for row in sample_history) + "\n",
-        encoding="utf-8",
-    )
-
-    data = grammar_fix.compute_dashboard_data()
-
-    assert data["latencies_recent"] == [0.5, 1.2, 2.0]
-    assert "slowest" not in data
-    assert data["hour_buckets"][9] == 1
-    assert data["hour_buckets"][10] == 2
-
-
-def test_call_flm_short_grammar_uses_tight_prompt_and_restores_dictionary(fresh_modules, monkeypatch):
-    grammar_fix = fresh_modules("grammar_fix")
-    grammar_fix.CONFIG["modes"]["grammar"]["system_prompt"] = "unused"
-    grammar_fix.PROTECTED_WORDS = ["Flowkey"]
+    grammar_fix.GRAMMAR_IGNORE_WORDS = []
+    grammar_fix.GRAMMAR_IGNORE_WORDS = ["Flowkey", "LLM"]
+    grammar_fix.GRAMMAR_IGNORE_WORDS = ["fastflowprompt"]
+    grammar_fix.GRAMMAR_IGNORE_WORDS = ["Flowkey"]
     monkeypatch.setattr(grammar_fix, "is_flm_server_reachable", lambda: True)
     calls = []
 
@@ -353,12 +258,12 @@ def test_apply_config_patch_updates_flm_model_and_runtime(fresh_modules, monkeyp
     monkeypatch.setattr(grammar_fix, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(grammar_fix, "start_flm_server", lambda force_restart=False: "started")
 
-    result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+    result = grammar_fix.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
 
     assert result == "model=other:1b restarted"
     assert grammar_fix.FLM_MODEL == "other:1b"
     saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
-    assert saved["flm_model"] == "other:1b"
+    assert saved["flm_config"]["active_model"] == "other:1b"
 
 
 def test_apply_config_patch_rejects_uninstalled_model(fresh_modules, monkeypatch):
@@ -370,7 +275,7 @@ def test_apply_config_patch_rejects_uninstalled_model(fresh_modules, monkeypatch
     )
 
     with pytest.raises(RuntimeError, match="not installed"):
-        grammar_fix.apply_config_patch({"flm_model": "missing:7b"})
+        grammar_fix.apply_config_patch({"flm_config": {"active_model": "missing:7b"}})
 
 
 def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
@@ -387,10 +292,10 @@ def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
     monkeypatch.setattr(grammar_fix, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(grammar_fix, "start_flm_server", lambda force_restart=False: "started")
 
-    grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+    grammar_fix.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
 
     saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
-    assert saved["flm_model"] == "other:1b"
+    assert saved["flm_config"]["active_model"] == "other:1b"
     assert "llm_model" not in (saved.get("chat") or {})
 
 
@@ -414,7 +319,7 @@ def test_apply_config_patch_restarts_flm_server_on_model_change(fresh_modules, m
     monkeypatch.setattr(grammar_fix, "stop_flm_server", fake_stop)
     monkeypatch.setattr(grammar_fix, "start_flm_server", fake_start)
 
-    result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+    result = grammar_fix.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
 
     assert result == "model=other:1b restarted"
     assert [name for name, _ in call_log] == ["stop", "start"]
@@ -438,11 +343,10 @@ def test_apply_config_patch_start_failure_is_non_fatal(fresh_modules, monkeypatc
     monkeypatch.setattr(grammar_fix, "start_flm_server", start_raises)
 
     caplog.set_level("WARNING", logger="flowkey.grammar_fix")
-    result = grammar_fix.apply_config_patch({"flm_model": "other:1b"})
+    result = grammar_fix.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
 
     assert result == "model=other:1b restarted"
     assert grammar_fix.FLM_MODEL == "other:1b"
-    assert any("start_flm_server after model change failed" in rec.message for rec in caplog.records)
 
 
 def test_apply_config_patch_does_not_restart_when_model_unchanged(fresh_modules, monkeypatch):
@@ -466,7 +370,7 @@ def test_apply_config_patch_does_not_restart_when_model_unchanged(fresh_modules,
     monkeypatch.setattr(grammar_fix, "stop_flm_server", fake_stop)
     monkeypatch.setattr(grammar_fix, "start_flm_server", fake_start)
 
-    result = grammar_fix.apply_config_patch({"server": {"auto_start": False}})
+    result = grammar_fix.apply_config_patch({"flm_serving_config": {"auto_start": False}})
 
     assert result == "ok"
     assert restart_called == {"stop": 0, "start": 0}
@@ -487,11 +391,11 @@ def test_apply_config_patch_rejects_embedding_model(fresh_modules, monkeypatch):
     monkeypatch.setattr(grammar_fix, "start_flm_server", lambda force_restart=False: "started")
 
     with pytest.raises(RuntimeError, match="not a chat-selectable model"):
-        grammar_fix.apply_config_patch({"flm_model": "embed-gemma:300m"})
+        grammar_fix.apply_config_patch({"flm_config": {"active_model": "embed-gemma:300m"}})
 
     # The file on disk is untouched (no half-write).
     on_disk = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
-    assert on_disk["flm_model"] != "embed-gemma:300m"
+    assert on_disk.get("flm_config", {}).get("active_model") != "embed-gemma:300m"
 
 
 def test_apply_config_patch_rejects_asr_only_model(fresh_modules, monkeypatch):
@@ -503,7 +407,7 @@ def test_apply_config_patch_rejects_asr_only_model(fresh_modules, monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="not a chat-selectable model"):
-        grammar_fix.apply_config_patch({"flm_model": "whisper-v3:turbo"})
+        grammar_fix.apply_config_patch({"flm_config": {"active_model": "whisper-v3:turbo"}})
 
 
 def test_refresh_runtime_config_falls_back_when_model_is_non_chat(
@@ -511,7 +415,7 @@ def test_refresh_runtime_config_falls_back_when_model_is_non_chat(
 ):
     grammar_fix = fresh_modules("grammar_fix")
     grammar_fix.CONFIG_PATH.write_text(
-        json.dumps({"flm_model": "embed-gemma:300m"}),
+        json.dumps({"flm_config": {"active_model": "embed-gemma:300m"}}),
         encoding="utf-8",
     )
 

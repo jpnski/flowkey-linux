@@ -57,42 +57,41 @@ def save_config(cfg: dict) -> None:
 
 
 def refresh_runtime_config() -> None:
-    global CONFIG, ENABLED, FLM_BASE_URL, FLM_MODEL, FLM_TIMEOUT_SECONDS
-    global HISTORY_PATH, HISTORY_STORE_TEXT, SERVER_CFG, SERVER_AUTO_START
-    global SERVER_PERFORMANCE_MODE, SERVER_STARTUP_TIMEOUT_SECONDS
-    global SERVER_EXTRA_ARGS, SERVER_LOG_TO_FILE, SERVER_LOG_FILE
-    global INPUT_PROCESSING_CFG, DICT_CFG, PROTECTED_WORDS
+    global CONFIG, FLM_BASE_URL, FLM_MODEL, FLM_TIMEOUT_SECONDS
+    global HISTORY_PATH, HISTORY_STORE_TEXT, FLM_CFG, SERVING_CFG, SERVER_AUTO_START
+    global FLM_POWER_MODE, SERVING_STARTUP_TIMEOUT_S
+    global SERVING_EXTRA_ARGS, SERVER_LOG_TO_FILE, SERVER_LOG_FILE
+    global INPUT_PROCESSING_CFG, GRAMMAR_IGNORE_WORDS
 
     CONFIG = load_config()
-    ENABLED = bool(CONFIG.get("enabled", True))
     try:
         FLM_BASE_URL = config.validate_flm_base_url(
-            str(CONFIG.get("flm_base_url") or "http://127.0.0.1:52625")
+            str(CONFIG.get("flm_config", {}).get("api_url") or "http://127.0.0.1:52625")
         )
     except ValueError as exc:
         log.warning("invalid flm_base_url in config, using default: %s", exc)
         FLM_BASE_URL = "http://127.0.0.1:52625"
-    FLM_MODEL = str(CONFIG.get("flm_model") or "gemma4-it:e4b").strip()
+    FLM_MODEL = str(CONFIG.get("flm_config", {}).get("active_model") or "gemma4-it:e4b").strip()
     if FLM_MODEL and not _is_selectable_chat_model(FLM_MODEL):
         log.warning(
-            "flm_model %r in config is not a chat-selectable model; "
+            "active_model %r in config is not a chat-selectable model; "
             "falling back to default %r",
             FLM_MODEL, config.DEFAULT_CHAT_MODEL,
         )
         FLM_MODEL = config.DEFAULT_CHAT_MODEL
-    FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_timeout_seconds") or 30)
-    HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history_filename") or "grammar_fix_history.jsonl")
-    HISTORY_STORE_TEXT = bool(CONFIG.get("history_store_text", False))
-    SERVER_CFG = CONFIG.get("server") or {}
-    SERVER_AUTO_START = bool(SERVER_CFG.get("auto_start", True))
-    SERVER_PERFORMANCE_MODE = str(SERVER_CFG.get("performance_mode") or "balanced").strip().lower()
-    SERVER_STARTUP_TIMEOUT_SECONDS = int(SERVER_CFG.get("startup_timeout_seconds") or 25)
-    SERVER_EXTRA_ARGS = [str(a) for a in (SERVER_CFG.get("serve_extra_args") or [])]
-    SERVER_LOG_TO_FILE = bool(SERVER_CFG.get("log_to_file", True))
-    SERVER_LOG_FILE = str(SERVER_CFG.get("log_file") or "flm_server.log")
+    FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_config", {}).get("api_call_timeout_s") or 30)
+    HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history_config", {}).get("hist_file") or "grammar_fix_history.jsonl")
+    HISTORY_STORE_TEXT = bool(CONFIG.get("history_config", {}).get("store_text", False))
+    FLM_CFG = CONFIG.get("flm_config") or {}
+    SERVING_CFG = CONFIG.get("flm_serving_config") or {}
+    SERVER_AUTO_START = bool(SERVING_CFG.get("auto_start", True))
+    FLM_POWER_MODE = str(FLM_CFG.get("power_mode") or "balanced").strip().lower()
+    SERVING_STARTUP_TIMEOUT_S = int(SERVING_CFG.get("proc_startup_timeout_s") or 25)
+    SERVING_EXTRA_ARGS = [str(a) for a in (SERVING_CFG.get("extra_args") or [])]
+    SERVER_LOG_TO_FILE = bool(SERVING_CFG.get("log_to_file", True))
+    SERVER_LOG_FILE = str(SERVING_CFG.get("log_file") or "flm_server.log")
     INPUT_PROCESSING_CFG = CONFIG.get("input_processing") or {}
-    DICT_CFG = CONFIG.get("dictionary") or {}
-    PROTECTED_WORDS = [str(w) for w in (DICT_CFG.get("protected_words") or []) if str(w).strip()]
+    GRAMMAR_IGNORE_WORDS = [str(w) for w in (CONFIG.get("grammar_ignore_words") or []) if str(w).strip()]
 
 
 refresh_runtime_config()
@@ -139,8 +138,6 @@ def shortcut_to_compact(shortcut: str) -> str:
 
 def list_hotkeys() -> None:
     """Print one TSV row per configured mode (consumed by --list-hotkeys)."""
-    if not ENABLED:
-        return
     for mode_id, mode_cfg in (CONFIG.get("modes") or {}).items():
         hotkey = shortcut_to_compact((mode_cfg or {}).get("shortcut"))
         if hotkey:
@@ -197,9 +194,9 @@ def start_flm_server(force_restart: bool = False) -> str:
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
-        performance_mode=SERVER_PERFORMANCE_MODE,
-        startup_timeout_seconds=SERVER_STARTUP_TIMEOUT_SECONDS,
-        extra_args=SERVER_EXTRA_ARGS,
+        power_mode=FLM_POWER_MODE,
+        startup_timeout_seconds=SERVING_STARTUP_TIMEOUT_S,
+        extra_args=SERVING_EXTRA_ARGS,
         log_to_file=SERVER_LOG_TO_FILE,
         log_file=SERVER_LOG_FILE,
         pid_path=PID_PATH,
@@ -218,9 +215,9 @@ def stop_flm_server(force: bool = False) -> bool:
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
-        performance_mode=SERVER_PERFORMANCE_MODE,
-        startup_timeout_seconds=SERVER_STARTUP_TIMEOUT_SECONDS,
-        extra_args=SERVER_EXTRA_ARGS,
+        power_mode=FLM_POWER_MODE,
+        startup_timeout_seconds=SERVING_STARTUP_TIMEOUT_S,
+        extra_args=SERVING_EXTRA_ARGS,
         log_to_file=SERVER_LOG_TO_FILE,
         log_file=SERVER_LOG_FILE,
         pid_path=PID_PATH,
@@ -229,31 +226,38 @@ def stop_flm_server(force: bool = False) -> bool:
     return flm_server.stop_flm_server(settings, force=force)
 
 
-def get_current_performance_mode() -> str:
+def get_power_mode() -> str:
     cfg = load_config()
-    mode = str((cfg.get("server") or {}).get("performance_mode") or "balanced").strip().lower()
+    mode = str((cfg.get("flm_config") or {}).get("power_mode") or "balanced").strip().lower()
     return mode if mode in {"balanced", "max"} else "balanced"
 
 
-def set_performance_mode(mode: str) -> str:
+def set_power_mode(mode: str) -> str:
     normalized = str(mode or "").strip().lower()
-    if normalized not in {"balanced", "max"}:
-        raise RuntimeError("Invalid mode. Use balanced or max.")
+    if normalized not in {"powersaver", "balanced", "performance", "turbo"}:
+        raise RuntimeError(f"Invalid mode '{normalized}'. Use powersaver, balanced, performance, or turbo.")
     cfg = load_config()
-    cfg.setdefault("server", {})
-    cfg["server"]["performance_mode"] = normalized
+    cfg.setdefault("flm_config", {})["power_mode"] = normalized
     save_config(cfg)
     return normalized
 
 
-def toggle_performance_mode() -> str:
-    target = "max" if get_current_performance_mode() == "balanced" else "balanced"
-    return set_performance_mode(target)
+_PERF_CYCLE = ["powersaver", "balanced", "performance", "turbo"]
+
+
+def toggle_power_mode() -> str:
+    current = get_power_mode()
+    try:
+        idx = _PERF_CYCLE.index(current)
+    except ValueError:
+        idx = -1
+    target = _PERF_CYCLE[(idx + 1) % len(_PERF_CYCLE)]
+    return set_power_mode(target)
 
 
 def get_history_text_mode() -> str:
     cfg = load_config()
-    enabled = bool(cfg.get("history_store_text", False))
+    enabled = bool(cfg.get("history_config", {}).get("store_text", False))
     return "visible" if enabled else "redacted"
 
 
@@ -262,7 +266,7 @@ def set_history_text_mode(mode: str) -> str:
     if normalized not in {"visible", "redacted"}:
         raise RuntimeError("Invalid history mode. Use visible or redacted.")
     cfg = load_config()
-    cfg["history_store_text"] = normalized == "visible"
+    cfg.setdefault("history_config", {})["store_text"] = normalized == "visible"
     save_config(cfg)
     return normalized
 
@@ -304,7 +308,7 @@ def server_status() -> str:
     return (
         f"reachable={str(reachable).lower()} pid={pid if pid else 'none'} "
         f"pid_alive={str(alive).lower()} port_pids={bound_pids} "
-        f"mode={SERVER_PERFORMANCE_MODE} model={FLM_MODEL}"
+        f"mode={FLM_POWER_MODE} model={FLM_MODEL}"
     )
 
 
@@ -327,17 +331,17 @@ def _split_chunks(text: str, chunk_size: int) -> list[str]:
     return llm_client.split_chunks(text, chunk_size, INPUT_PROCESSING_CFG)
 
 
-def _select_runtime(mode: str, input_text: str) -> tuple[str, int, str]:
+def _resolve_token_budget(mode: str, input_text: str) -> tuple[int, str]:
     runtime = llm_client.LlmRuntimeConfig(
         base_url=FLM_BASE_URL,
         model=FLM_MODEL,
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
         input_processing_cfg=INPUT_PROCESSING_CFG,
-        protected_words=PROTECTED_WORDS,
+        protected_words=GRAMMAR_IGNORE_WORDS,
         modes_cfg=CONFIG.get("modes") or {},
     )
-    return llm_client.select_runtime(runtime, mode, input_text)
+    return llm_client.resolve_token_budget(runtime, mode, input_text)
 
 
 def _call_flm_api(
@@ -411,7 +415,7 @@ def _strip_prompt_scaffold_labels(text: str) -> str:
 
 
 def _dict_protect(text: str) -> tuple[str, dict[str, str]]:
-    return llm_client.dict_protect(text, PROTECTED_WORDS)
+    return llm_client.dict_protect(text, GRAMMAR_IGNORE_WORDS)
 
 
 def _dict_restore(text: str, mapping: dict[str, str]) -> str:
@@ -425,7 +429,7 @@ def call_flm(mode: str, input_text: str) -> tuple[str, float, str, str]:
         timeout_seconds=FLM_TIMEOUT_SECONDS,
         server_auto_start=SERVER_AUTO_START,
         input_processing_cfg=INPUT_PROCESSING_CFG,
-        protected_words=PROTECTED_WORDS,
+        protected_words=GRAMMAR_IGNORE_WORDS,
         modes_cfg=CONFIG.get("modes") or {},
     )
     return llm_client.call_flm(
@@ -552,13 +556,15 @@ def apply_config_patch(patch: dict) -> str:
     cfg = load_config()
     _deep_merge(cfg, filtered)
 
-    if "flm_model" in filtered:
-        new_model = str(filtered["flm_model"]).strip()
+    flm_patch = filtered.get("flm_config") if isinstance(filtered.get("flm_config"), dict) else None
+    new_model = None
+    if flm_patch and "active_model" in flm_patch:
+        new_model = str(flm_patch["active_model"]).strip()
         if not new_model:
-            raise RuntimeError("flm_model cannot be empty.")
+            raise RuntimeError("active_model cannot be empty.")
         if not _is_selectable_chat_model(new_model):
             raise RuntimeError(
-                f"flm_model {new_model!r} is not a chat-selectable model. "
+                f"active_model {new_model!r} is not a chat-selectable model. "
                 f"Embedding/ASR models are reserved for side-loading; pick a chat model instead."
             )
         models_info = list_flm_models()
@@ -574,11 +580,12 @@ def apply_config_patch(patch: dict) -> str:
             chat.pop("llm_base_url", None)
 
     save_config(cfg)
+    refresh_runtime_config()
 
-    if "flm_model" in filtered:
-        if FLM_MODEL != str(filtered["flm_model"]).strip():
+    if new_model is not None:
+        if FLM_MODEL != new_model:
             raise RuntimeError(
-                f"Config model mismatch after save: wanted {filtered['flm_model']!r}, "
+                f"Config model mismatch after save: wanted {new_model!r}, "
                 f"got {FLM_MODEL!r}"
             )
         if FLM_MODEL != old_model:
@@ -630,23 +637,32 @@ def build_config_snapshot() -> dict:
     input_processing_cfg = cfg.get("input_processing") or {}
     hotkeys_cfg = cfg.get("hotkeys") or {}
     tone_cfg = ((cfg.get("modes") or {}).get("tone") or {})
-    server_cfg = cfg.get("server") or {}
+    flm_cfg = cfg.get("flm_config") or {}
+    serving_cfg = cfg.get("flm_serving_config") or {}
+    history_cfg = cfg.get("history_config") or {}
     return {
         "version": APP_VERSION,
-        "flm_base_url": str(cfg.get("flm_base_url") or "http://127.0.0.1:52625"),
-        "flm_model": str(cfg.get("flm_model") or FLM_MODEL),
-        "flm_model_loaded": is_flm_server_reachable(),
-        "flm_timeout_seconds": int(cfg.get("flm_timeout_seconds") or 30),
-        "history_store_text": bool(cfg.get("history_store_text", False)),
-        "server": {
-            "auto_start": bool(server_cfg.get("auto_start", True)),
-            "performance_mode": str(server_cfg.get("performance_mode") or "balanced"),
+        "flm_config": {
+            "api_url": str(flm_cfg.get("api_url") or "http://127.0.0.1:52625"),
+            "active_model": str(flm_cfg.get("active_model") or FLM_MODEL),
+            "api_call_timeout_s": int(flm_cfg.get("api_call_timeout_s") or 30),
+            "power_mode": str(flm_cfg.get("power_mode") or "balanced"),
+            "flm_model_loaded": is_flm_server_reachable(),
+        },
+        "flm_serving_config": {
+            "auto_start": bool(serving_cfg.get("auto_start", True)),
+            "proc_startup_timeout_s": int(serving_cfg.get("proc_startup_timeout_s") or 25),
+            "log_to_file": bool(serving_cfg.get("log_to_file", True)),
+            "log_file": str(serving_cfg.get("log_file") or "flm_server.log"),
+        },
+        "history_config": {
+            "store_text": bool(history_cfg.get("store_text", False)),
         },
         "input_processing": {
             "enabled": bool(input_processing_cfg.get("enabled", True)),
             "input_length_threshold": int(input_processing_cfg.get("input_length_threshold") or 4000),
             "chunk_size": int(input_processing_cfg.get("chunk_size") or 800),
-            "min": int(input_processing_cfg.get("min") or 200),
+            "min_chunk_size": int(input_processing_cfg.get("min_chunk_size") or 200),
         },
         "notes": {
             "vault_dir": str(notes_cfg.get("vault_dir") or "$HOME/Documents/Flowkey_Notes"),
@@ -695,10 +711,25 @@ def handle_server_cli() -> bool:
             print("stopped" if stop_flm_server(force=True) else "not_running")
             return True
         if action == "performance":
-            print(get_current_performance_mode())
+            print(get_power_mode())
             return True
-        if action == "toggle_performance":
-            print(toggle_performance_mode())
+        if action == "power_mode":
+            print(get_power_mode())
+            return True
+        if action == "toggle_power_mode":
+            print(toggle_power_mode())
+            return True
+        if action == "set_power_balanced":
+            print(set_power_mode("balanced"))
+            return True
+        if action == "set_power_turbo":
+            print(set_power_mode("turbo"))
+            return True
+        if action == "set_power_performance":
+            print(set_power_mode("performance"))
+            return True
+        if action == "set_power_powersaver":
+            print(set_power_mode("powersaver"))
             return True
         if action == "history_text_status":
             print(get_history_text_mode())
@@ -728,13 +759,6 @@ def handle_server_cli() -> bool:
             return True
         if action == "doctor":
             print(run_doctor())
-            return True
-        # Direct "set to this value" variants for submenu items.
-        if action == "set_perf_balanced":
-            print(set_performance_mode("balanced"))
-            return True
-        if action == "set_perf_max":
-            print(set_performance_mode("max"))
             return True
         if action == "set_history_visible":
             print(set_history_text_mode("visible"))
@@ -854,9 +878,6 @@ def main() -> None:
         return
     if handle_server_cli():
         return
-    if not ENABLED:
-        return
-
     mode = parse_mode()
     input_text = _read_input_text().strip()
     if not input_text:
