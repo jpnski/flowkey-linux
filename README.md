@@ -11,7 +11,7 @@ Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow). This is a
 - **Global hotkeys** — Select text anywhere, press a key combo, get grammar/prompt/summarize/explain/tone results pasted back in-place (X11: `pynput`, Wayland: `evdev`)
 - **Clipboard watcher** — Optional live monitoring: detects URLs, code, or stack traces on copy and suggests the right mode
 - **Markdown TUI chat** — Streaming LLM responses, slash commands, conversation history
-- **Multi-panel dashboard** — Telemetry, latency percentiles, recent history, notes vault, config editor, benchmark runner
+- **Multi-pane TUI dashboard** — Config (model, hotkeys, server, chunking), telemetry, benchmark, notes vault, and history — each pane built from interactive sub-panels
 - **System tray** — Quick server start/stop, warmup, performance mode toggle
 - **Note capture** — Save selections to categorized notes (Ctrl+Alt+N)
 - **Context-aware modes** — Grammar fix, prompt rewriting (Claude-ready), summarization, code/regex/SQL explanation, tone shifting, ask selection in chat
@@ -144,17 +144,14 @@ Key settings:
 | `flm_model` | `gemma4-it:e4b` | LLM model |
 | `flm_timeout_seconds` | 60 | Request timeout |
 | `server.performance_mode` | `balanced` | `balanced` or `max` |
-| `hotkeys.grammar_fix` | `^+g` | Ctrl+Shift+G |
-| `hotkeys.open_chat` | `^+t` | Ctrl+Shift+T |
-| `hotkeys.capture_note` | `^!n` | Ctrl+Alt+N |
-| `hotkeys.ask_chat` | `^+a` | Ctrl+Shift+A |
+| `hotkeys.grammar_fix` | `ctrl+alt+g` | Ctrl+Alt+G |
+| `hotkeys.open_chat` | `ctrl+alt+t` | Ctrl+Alt+T |
+| `hotkeys.capture_note` | `ctrl+alt+n` | Ctrl+Alt+N |
+| `hotkeys.ask_chat` | `ctrl+alt+a` | Ctrl+Alt+A |
 
 ### Hotkey notation
 
-Uses compact-notation: `^` = Ctrl, `!` = Alt, `+` = Shift. Examples:
-- `^+g` → Ctrl+Shift+G
-- `^!n` → Ctrl+Alt+N
-- `^+a` → Ctrl+Shift+A
+Hotkeys are stored as human-readable modifier+letter strings (`ctrl+alt+g`). Modifier keys available: `ctrl`, `super` (Win key), `alt`. Example: `ctrl+alt+g` → Ctrl+Alt+G.
 
 ### Mode prefixes
 
@@ -190,16 +187,15 @@ Launch: `flowkey-tui`
 
 ### Dashboard tab (F2)
 
-Six panels auto-refreshing every 10s:
+Five tabbed panes, auto-refreshing every 10s. Each pane is composed of interactive sub-panels:
 
-| Panel | Content |
+| Pane | Sub-panels |
 |---|---|
-| **Overview** | Daemon status, model name, version, hotkeys, activity counters |
+| **Config** | FLM Runtime (version + update check), FLM Model (select/pull models), Chat Settings (tone, performance, input processing, auto-start), Input Processing (chunking thresholds), Hotkeys (modifier + letter bindings) |
 | **Telemetry** | Counters by mode, latency percentiles, token counts, tok/s |
-| **History** | Recent 50 entries from grammar fix history |
-| **Notes** | Vault directory, categories, note count |
-| **Config** | Hotkey bindings, FLM URL, model, performance mode |
 | **Benchmark** | Run benchmarks, recent results table |
+| **Notes** | Vault directory, categories, note count |
+| **History** | Recent 50 entries from grammar fix history |
 
 ### Keyboard shortcuts
 
@@ -308,7 +304,21 @@ flowkey-linux/
 │   ├── tui/
 │   │   ├── app.py               # TUI entry point + main screen
 │   │   ├── chat.py              # Streaming chat widget
-│   │   └── dashboard.py         # Multi-panel dashboard
+│   │   └── dashboard/           # Dashboard (package)
+│   │       ├── __init__.py      # DashboardWidget, shared CSS
+│   │       ├── _daemon.py       # Daemon HTTP helpers
+│   │       ├── _pane.py         # Pane base class
+│   │       ├── config_pane/     # Config pane (5 interactive sub-panels)
+│   │       │   ├── __init__.py
+│   │       │   ├── chat_settings.py
+│   │       │   ├── flm_panel.py
+│   │       │   ├── flm_runtime.py
+│   │       │   ├── hotkeys.py
+│   │       │   └── input_processing.py
+│   │       ├── telemetry.py
+│   │       ├── benchmark.py
+│   │       ├── notes.py
+│   │       └── history.py
 │   ├── grammar_fix.py           # CLI grammar/prompt processing
 │   ├── flm_server.py            # FLM server lifecycle helpers
 │   ├── llm_client.py            # OpenAI-compatible LLM client
