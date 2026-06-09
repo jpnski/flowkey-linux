@@ -2,15 +2,14 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import Static
 
 from tui.dashboard._daemon import _daemon_post
 from tui.dashboard._pane import Pane
-from tui.dashboard.chat_settings import ChatSettingsPanel
-from tui.dashboard.flm_panel import FlmModelPanel
-from tui.dashboard.flm_runtime import FlmRuntimePanel
-from tui.dashboard.hotkeys import HotkeysPanel
-from tui.dashboard.input_processing import InputProcessingPanel
+from tui.dashboard.config_pane.chat_settings import ChatSettingsPanel
+from tui.dashboard.config_pane.flm_panel import FlmModelPanel
+from tui.dashboard.config_pane.flm_runtime import FlmRuntimePanel
+from tui.dashboard.config_pane.hotkeys import HotkeysPanel
+from tui.dashboard.config_pane.input_processing import InputProcessingPanel
 
 
 class ConfigPane(Pane):
@@ -26,7 +25,6 @@ class ConfigPane(Pane):
 
     def __init__(self) -> None:
         super().__init__()
-        self._data: dict = {}
 
     def compose(self) -> ComposeResult:
         with Vertical(id="config-tab-root"):
@@ -35,15 +33,9 @@ class ConfigPane(Pane):
             yield ChatSettingsPanel(id="chat-settings-panel")
             yield InputProcessingPanel(id="input-processing-panel")
             yield HotkeysPanel(id="hotkeys-panel")
-            yield Static("Loading Config…", id="config-content", classes="panel-content")
 
     def _fetch(self) -> None:
-        # Fetch config data for the text content.
         config_resp = _daemon_post("config_snapshot")
-        if config_resp.get("ok"):
-            self._data = config_resp.get("result") or {}
-        else:
-            self._data = {"_error": config_resp.get("error", "daemon unreachable")}
 
         # Fetch model lists and feed FlmModelPanel.
         installed_resp = _daemon_post("models_installed")
@@ -98,8 +90,6 @@ class ConfigPane(Pane):
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded)
         self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, input_processing_cfg)
-        # Schedule the config text render.
-        self.call_later(self._on_data)
 
     def _update_flm_runtime_panel(self, data: dict) -> None:
         try:
@@ -150,42 +140,3 @@ class ConfigPane(Pane):
             panel.update_input_processing(
                 enabled=bool(input_processing_cfg.get("enabled", True)),
             )
-
-    def _on_data(self) -> None:
-        content = self.query_one("#config-content", Static)
-        d = self._data
-
-        if d.get("_error"):
-            content.update(f"[red]Daemon unreachable — {d['_error']}[/]")
-            return
-
-        lines = [
-            "[bold]Configuration[/]",
-            "",
-            f"FLM Base URL:       {d.get('flm_base_url', '?')}",
-            f"FLM Model:          {d.get('flm_model', '?')}",
-            f"Timeout:            {d.get('flm_timeout_seconds', 30)}s",
-            "",
-            "[bold]Server[/]",
-            f"  Auto-start:       {d.get('server', {}).get('auto_start', True)}",
-            f"  Performance:      {d.get('server', {}).get('performance_mode', 'balanced')}",
-            "",
-            "[bold]Input processing[/]",
-            f"  Enabled:          {d.get('input_processing', {}).get('enabled', True)}",
-            f"  Long threshold:   {d.get('input_processing', {}).get('input_length_threshold', 4000)} chars",
-            f"  Chunk size:       {d.get('input_processing', {}).get('chunk_size', 800)} chars",
-            "",
-            "[bold]Tone[/]",
-            f"  Preset:           {d.get('tone', {}).get('preset', 'formal')}",
-            "",
-            "[bold]Hotkeys[/]",
-        ]
-        hotkeys = d.get("hotkeys", {})
-        if isinstance(hotkeys, dict):
-            for action, key in sorted(hotkeys.items()):
-                lines.append(f"  {action}: {key}")
-
-        lines.append("")
-        lines.append("[dim]Config editing available via daemon apply_config_patch.[/]")
-
-        content.update("\n".join(lines))

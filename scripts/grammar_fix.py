@@ -661,10 +661,10 @@ def build_config_snapshot() -> dict:
             "preset": str(tone_cfg.get("preset") or "formal"),
         },
         "hotkeys": {
-            "grammar_fix": str(hotkeys_cfg.get("grammar_fix") or "^+g"),
-            "open_chat": str(hotkeys_cfg.get("open_chat") or "^+t"),
-            "capture_note": str(hotkeys_cfg.get("capture_note") or "^!n"),
-            "ask_chat": str(hotkeys_cfg.get("ask_chat") or "^+a"),
+            "grammar_fix": str(hotkeys_cfg.get("grammar_fix") or "ctrl+alt+g"),
+            "open_chat": str(hotkeys_cfg.get("open_chat") or "ctrl+alt+t"),
+            "capture_note": str(hotkeys_cfg.get("capture_note") or "ctrl+alt+n"),
+            "ask_chat": str(hotkeys_cfg.get("ask_chat") or "ctrl+alt+a"),
         },
     }
 

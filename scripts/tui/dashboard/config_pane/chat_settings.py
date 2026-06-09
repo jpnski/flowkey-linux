@@ -33,7 +33,7 @@ class ChatSettingsPanel(Vertical):
 
     Four equally-sized columns, each with a labelled RadioSet:
       Performance Mode  |  Response Tone  |  Input Processing  |  Server Auto-Start
-      ○ Balanced  ○ Max  |  ○ Friendly  ○ Casual  ○ Formal  |  ○ Enabled  ○ Disabled  |  ○ On  ○ Off
+      ○ Balanced  ○ Max  |  ○ Friendly  ○ Casual  ○ Formal  |  ○ On  ○ Off  |  ○ On  ○ Off
     """
 
     DEFAULT_CSS = """
@@ -89,8 +89,8 @@ class ChatSettingsPanel(Vertical):
             with Vertical(classes="settings-col"):
                 yield Static("Input processing", classes="col-label")
                 with RadioSet(id="input-processing-radio-set"):
-                    yield RadioButton("Enabled", id="input-processing-enabled")
-                    yield RadioButton("Disabled", id="input-processing-disabled")
+                    yield RadioButton("On", id="input-processing-enabled")
+                    yield RadioButton("Off", id="input-processing-disabled")
             # -- Auto-Start --
             with Vertical(classes="settings-col"):
                 yield Static("Server auto-start", classes="col-label")
@@ -261,7 +261,7 @@ class ChatSettingsPanel(Vertical):
         )
         if resp.get("ok"):
             self.app.notify(
-                f"Input processing: {'Enabled' if enabled else 'Disabled'}",
+                f"Input processing: {'On' if enabled else 'Off'}",
                 severity="information",
             )
             try:

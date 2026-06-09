@@ -55,10 +55,10 @@ DEFAULT_CONFIG = {
         "protected_words": [],
     },
     "hotkeys": {
-        "grammar_fix": "^+g",
-        "open_chat": "^+t",
-        "capture_note": "^!n",
-        "ask_chat": "^+a",
+        "grammar_fix": "ctrl+alt+g",
+        "open_chat": "ctrl+alt+t",
+        "capture_note": "ctrl+alt+n",
+        "ask_chat": "ctrl+alt+a",
     },
     "notes": {
         "vault_dir": "$HOME/Documents/Flowkey_Notes",
