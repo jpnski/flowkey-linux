@@ -7,7 +7,6 @@ from tui.dashboard._daemon import _daemon_post
 from tui.dashboard._pane import Pane
 from tui.dashboard.config_pane.chat_settings import ChatSettingsPanel
 from tui.dashboard.config_pane.flm_panel import FlmModelPanel
-from tui.dashboard.config_pane.flm_runtime import FlmRuntimePanel
 from tui.dashboard.config_pane.hotkeys import HotkeysPanel
 from tui.dashboard.config_pane.input_processing import InputProcessingPanel
 
@@ -28,7 +27,6 @@ class ConfigPane(Pane):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="config-tab-root"):
-            yield FlmRuntimePanel(id="flm-runtime-panel")
             yield FlmModelPanel(id="flm-model-panel")
             yield ChatSettingsPanel(id="chat-settings-panel")
             yield InputProcessingPanel(id="input-processing-panel")
@@ -59,7 +57,7 @@ class ConfigPane(Pane):
         if config_resp.get("ok"):
             cfg = config_resp.get("result") or {}
             active = str(cfg.get("flm_config", {}).get("active_model") or "")
-            model_loaded = bool(cfg.get("flm_model_loaded", False))
+            model_loaded = bool(cfg.get("flm_config", {}).get("flm_model_loaded", False))
 
         # Feed tone preset + server settings to ChatSettingsPanel.
         tone_preset = "formal"
@@ -84,20 +82,12 @@ class ConfigPane(Pane):
             input_processing_cfg = dict((config_resp.get("result") or {}).get("input_processing") or {})
 
         # Update sub-panels (data-ingestion, not a render).
-        self.call_later(self._update_flm_runtime_panel, flm_runtime_data)
         self.call_later(self._update_hotkeys_panel, hotkeys)
         self.call_later(self._update_input_processing_panel, input_processing_cfg)
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
-                        active, daemon_reachable, model_loaded)
+                        active, daemon_reachable, model_loaded, flm_runtime_data)
         power_mode = cfg.get("flm_config", {}).get("power_mode", "balanced")
-        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, input_processing_cfg, power_mode)
-
-    def _update_flm_runtime_panel(self, data: dict) -> None:
-        try:
-            panel = self.query_one(FlmRuntimePanel)
-        except Exception:
-            return
-        panel.update_version_info(data)
+        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, power_mode)
 
     def _update_hotkeys_panel(self, hotkeys: dict[str, str]) -> None:
         try:
@@ -115,7 +105,8 @@ class ConfigPane(Pane):
 
     def _update_flm_panel(self, installed: list[str], not_installed: list[str],
                           active: str, daemon_reachable: bool,
-                          model_loaded: bool = False) -> None:
+                          model_loaded: bool = False,
+                          flm_runtime_data: dict | None = None) -> None:
         try:
             panel = self.query_one(FlmModelPanel)
         except Exception:
@@ -125,9 +116,10 @@ class ConfigPane(Pane):
             return
         panel.update_models(installed, not_installed, active, model_loaded,
                             daemon_reachable=True)
+        if flm_runtime_data:
+            panel.update_version_info(flm_runtime_data)
 
     def _update_chat_settings_panel(self, tone_preset: str, server_cfg: dict,
-                                    input_processing_cfg: dict | None = None,
                                     power_mode: str = "balanced") -> None:
         try:
             panel = self.query_one(ChatSettingsPanel)
@@ -138,7 +130,3 @@ class ConfigPane(Pane):
             auto_start=bool(server_cfg.get("auto_start", True)),
             power_mode=str(power_mode),
         )
-        if input_processing_cfg is not None:
-            panel.update_input_processing(
-                enabled=bool(input_processing_cfg.get("enabled", True)),
-            )

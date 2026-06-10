@@ -9,13 +9,13 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.events import Click
-from textual.widgets import Input, Static
+from textual.widgets import Input, RadioButton, RadioSet, Static
 
 from tui.dashboard._daemon import _daemon_post
 
 # (label, config_key, min_value, default, max_value)
 _PARAMS: list[tuple[str, str, int, int, int]] = [
-    ("Input length threshold", "input_length_threshold", 128, 4_000, 100_000),
+    ("Length threshold",       "input_length_threshold", 128, 4_000, 100_000),
     ("Min chunk size",         "min_chunk_size",         10,    200,   5_000),
     ("Chunk size",             "chunk_size",             50,    800,  20_000),
 ]
@@ -38,7 +38,7 @@ class InputProcessingPanel(Vertical):
         height: auto;
     }
     .ip-col {
-        width: 33.33%;
+        width: 25%;
         height: auto;
         padding: 0 1;
     }
@@ -75,12 +75,19 @@ class InputProcessingPanel(Vertical):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._values: dict[str, int] = {}
+        self._input_processing_enabled: bool = True
         for _label, key, _min, default, _max in _PARAMS:
             self._values[key] = default
 
     def compose(self) -> ComposeResult:
         yield Static("Input Processing", classes="panel-header")
         with Horizontal(classes="ip-columns"):
+            # -- Column 1: Chunking On/Off --
+            with Vertical(classes="ip-col"):
+                yield Static("Chunking", classes="ip-label")
+                with RadioSet(id="input-processing-radio-set"):
+                    yield RadioButton("On", id="input-processing-enabled")
+                    yield RadioButton("Off", id="input-processing-disabled")
             for label, key, _min, default, _max in _PARAMS:
                 with Vertical(classes="ip-col"):
                     yield Static(label, classes="ip-label")
@@ -96,7 +103,11 @@ class InputProcessingPanel(Vertical):
     # ---- Data ingestion (called by ConfigPane) ----
 
     def update_config(self, cfg: dict[str, Any]) -> None:
-        """Populate input fields from the input_processing config dict."""
+        """Populate input fields and chunking toggle from the input_processing config dict."""
+        # Set the Chunking On/Off radio set.
+        if "enabled" in cfg:
+            self.update_input_processing(bool(cfg["enabled"]))
+
         for _label, key, min_val, default, max_val in _PARAMS:
             raw = cfg.get(key)
             if raw is not None:
@@ -111,6 +122,15 @@ class InputProcessingPanel(Vertical):
                     inp.value = str(val)
                 except Exception:
                     pass
+
+    def update_input_processing(self, enabled: bool) -> None:
+        """Set the input-processing radio set to match the current config value."""
+        self._input_processing_enabled = enabled
+        try:
+            radio_set = self.query_one("#input-processing-radio-set", RadioSet)
+            radio_set.value = "input-processing-enabled" if enabled else "input-processing-disabled"
+        except Exception:
+            pass
 
     # ---- Event handlers ----
 
@@ -181,6 +201,18 @@ class InputProcessingPanel(Vertical):
             exclusive=True,
         )
 
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        if event.radio_set.id != "input-processing-radio-set":
+            return
+        radio_id = str(event.pressed.id or "") if event.pressed else ""
+        enabled = radio_id == "input-processing-enabled"
+        if enabled == self._input_processing_enabled:
+            return
+        self.run_worker(
+            partial(self._apply_input_processing_change, enabled),
+            exclusive=True,
+        )
+
     # ---- Workers ----
 
     async def _apply_change(
@@ -215,3 +247,34 @@ class InputProcessingPanel(Vertical):
                 f"Failed to update: {resp.get('error', 'unknown')}",
                 severity="error", timeout=5,
             )
+
+    async def _apply_input_processing_change(self, enabled: bool) -> None:
+        old_enabled = self._input_processing_enabled
+        self._input_processing_enabled = enabled
+
+        resp = await asyncio.to_thread(
+            _daemon_post, "apply_config_patch",
+            {"patch": {"input_processing": {"enabled": enabled}}},
+        )
+        if resp.get("ok"):
+            self.app.notify(
+                f"Input processing: {'On' if enabled else 'Off'}",
+                severity="information",
+            )
+            try:
+                from tui.dashboard import DashboardWidget
+                self.app.query_one(DashboardWidget).refresh_now()
+            except Exception:
+                pass
+        else:
+            self._input_processing_enabled = old_enabled
+            self.app.notify(
+                f"Failed to set input processing: {resp.get('error', 'unknown')}",
+                severity="error", timeout=5,
+            )
+            # Revert the radio selection.
+            try:
+                radio_set = self.query_one("#input-processing-radio-set", RadioSet)
+                radio_set.value = "input-processing-enabled" if old_enabled else "input-processing-disabled"
+            except Exception:
+                pass

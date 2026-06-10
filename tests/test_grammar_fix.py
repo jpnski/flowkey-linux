@@ -281,7 +281,7 @@ def test_apply_config_patch_rejects_uninstalled_model(fresh_modules, monkeypatch
 def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
     grammar_fix = fresh_modules("grammar_fix")
     cfg = grammar_fix.load_config()
-    cfg["chat"] = {"llm_model": "stale:old"}
+    cfg["chat_config"] = {"llm_model": "stale:old"}
     grammar_fix.save_config(cfg)
     monkeypatch.setattr(
         grammar_fix,
@@ -296,7 +296,7 @@ def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
 
     saved = json.loads(grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
     assert saved["flm_config"]["active_model"] == "other:1b"
-    assert "llm_model" not in (saved.get("chat") or {})
+    assert "llm_model" not in (saved.get("chat_config") or {})
 
 
 def test_apply_config_patch_restarts_flm_server_on_model_change(fresh_modules, monkeypatch):

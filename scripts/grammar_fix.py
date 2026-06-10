@@ -229,7 +229,7 @@ def stop_flm_server(force: bool = False) -> bool:
 def get_power_mode() -> str:
     cfg = load_config()
     mode = str((cfg.get("flm_config") or {}).get("power_mode") or "balanced").strip().lower()
-    return mode if mode in {"balanced", "max"} else "balanced"
+    return mode if mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
 
 
 def set_power_mode(mode: str) -> str:
@@ -574,10 +574,10 @@ def apply_config_patch(patch: dict) -> str:
                 raise RuntimeError(
                     f"Model '{new_model}' is not installed. Pull it first or pick another."
                 )
-        chat = cfg.get("chat")
-        if isinstance(chat, dict):
-            chat.pop("llm_model", None)
-            chat.pop("llm_base_url", None)
+        chat_cfg = cfg.get("chat_config")
+        if isinstance(chat_cfg, dict):
+            chat_cfg.pop("llm_model", None)
+            chat_cfg.pop("llm_base_url", None)
 
     save_config(cfg)
     refresh_runtime_config()
@@ -639,6 +639,7 @@ def build_config_snapshot() -> dict:
     tone_cfg = ((cfg.get("modes") or {}).get("tone") or {})
     flm_cfg = cfg.get("flm_config") or {}
     serving_cfg = cfg.get("flm_serving_config") or {}
+    chat_cfg = cfg.get("chat_config") or {}
     history_cfg = cfg.get("history_config") or {}
     return {
         "version": APP_VERSION,
@@ -654,6 +655,13 @@ def build_config_snapshot() -> dict:
             "proc_startup_timeout_s": int(serving_cfg.get("proc_startup_timeout_s") or 25),
             "log_to_file": bool(serving_cfg.get("log_to_file", True)),
             "log_file": str(serving_cfg.get("log_file") or "flm_server.log"),
+        },
+        "chat_config": {
+            "request_timeout_s": int(chat_cfg.get("request_timeout_s") or 240),
+            "temperature": float(chat_cfg.get("temperature") or 0.3),
+            "max_tokens": int(chat_cfg.get("max_tokens") or 1024),
+            "context_window_turns": int(chat_cfg.get("context_window_turns") or 12),
+            "system_prompt": str(chat_cfg.get("system_prompt") or ""),
         },
         "history_config": {
             "store_text": bool(history_cfg.get("store_text", False)),

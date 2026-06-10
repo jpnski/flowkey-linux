@@ -77,8 +77,8 @@ DEFAULT_CONFIG = {
         "generate_title": True,
         "generate_summary": True,
     },
-    "chat": {
-        "request_timeout_seconds": 240,
+    "chat_config": {
+        "request_timeout_s": 240,
         "temperature": 0.3,
         "max_tokens": 1024,
         "context_window_turns": 12,

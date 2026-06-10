@@ -67,7 +67,6 @@ class ChatSettingsPanel(Vertical):
         self._current_preset: str = "formal"
         self._auto_start: bool = True
         self._power_mode: str = "balanced"
-        self._input_processing_enabled: bool = True
 
     def compose(self) -> ComposeResult:
         yield Static("Chat Settings", classes="panel-header")
@@ -87,12 +86,6 @@ class ChatSettingsPanel(Vertical):
                     yield RadioButton("Friendly", id="tone-friendly")
                     yield RadioButton("Casual", id="tone-casual")
                     yield RadioButton("Formal", id="tone-formal")
-            # -- Input Processing --
-            with Vertical(classes="settings-col"):
-                yield Static("Input processing", classes="col-label")
-                with RadioSet(id="input-processing-radio-set"):
-                    yield RadioButton("On", id="input-processing-enabled")
-                    yield RadioButton("Off", id="input-processing-disabled")
             # -- Auto-Start --
             with Vertical(classes="settings-col"):
                 yield Static("Server auto-start", classes="col-label")
@@ -124,15 +117,6 @@ class ChatSettingsPanel(Vertical):
         try:
             perf_radio = self.query_one("#power-radio-set", RadioSet)
             perf_radio.value = power_mode if power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
-        except Exception:
-            pass
-
-    def update_input_processing(self, enabled: bool) -> None:
-        """Set the input-processing radio set to match the current config value."""
-        self._input_processing_enabled = enabled
-        try:
-            radio_set = self.query_one("#input-processing-radio-set", RadioSet)
-            radio_set.value = "input-processing-enabled" if enabled else "input-processing-disabled"
         except Exception:
             pass
 
@@ -176,15 +160,6 @@ class ChatSettingsPanel(Vertical):
                 partial(self._apply_tone_change, preset), exclusive=True,
             )
 
-        elif radio_set_id == "input-processing-radio-set":
-            enabled = radio_id == "input-processing-enabled"
-            if enabled == self._input_processing_enabled:
-                return
-            self.run_worker(
-                partial(self._apply_input_processing_change, enabled),
-                exclusive=True,
-            )
-
     # ---- Workers ----
 
     async def _apply_server_patch(self, server_patch: dict) -> None:
@@ -196,14 +171,17 @@ class ChatSettingsPanel(Vertical):
 
         self.update_server_settings(self._auto_start, self._power_mode)
 
-        if not resp.get("ok"):
-            self._power_mode = old_perf
-
-            self.update_server_settings(self._auto_start, self._power_mode)
+        # Route each setting to its correct config section after the config
+        # restructure: power_mode → flm_config, auto_start → flm_serving_config.
+        patch: dict = {}
+        if "power_mode" in server_patch:
+            patch.setdefault("flm_config", {})["power_mode"] = server_patch["power_mode"]
+        if "auto_start" in server_patch:
+            patch.setdefault("flm_serving_config", {})["auto_start"] = server_patch["auto_start"]
 
         resp = await asyncio.to_thread(
             _daemon_post, "apply_config_patch",
-            {"patch": {"server": server_patch}},
+            {"patch": patch},
         )
         if resp.get("ok"):
             self.app.notify("Server setting updated", severity="information")
@@ -250,33 +228,4 @@ class ChatSettingsPanel(Vertical):
             except Exception:
                 pass
 
-    async def _apply_input_processing_change(self, enabled: bool) -> None:
-        old_enabled = self._input_processing_enabled
-        self._input_processing_enabled = enabled
 
-        resp = await asyncio.to_thread(
-            _daemon_post, "apply_config_patch",
-            {"patch": {"input_processing": {"enabled": enabled}}},
-        )
-        if resp.get("ok"):
-            self.app.notify(
-                f"Input processing: {'On' if enabled else 'Off'}",
-                severity="information",
-            )
-            try:
-                from tui.dashboard import DashboardWidget
-                self.app.query_one(DashboardWidget).refresh_now()
-            except Exception:
-                pass
-        else:
-            self._input_processing_enabled = old_enabled
-            self.app.notify(
-                f"Failed to set input processing: {resp.get('error', 'unknown')}",
-                severity="error", timeout=5,
-            )
-            # Revert the radio selection.
-            try:
-                radio_set = self.query_one("#input-processing-radio-set", RadioSet)
-                radio_set.value = "input-processing-enabled" if old_enabled else "input-processing-disabled"
-            except Exception:
-                pass

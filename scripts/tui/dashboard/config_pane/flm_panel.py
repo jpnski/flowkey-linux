@@ -1,4 +1,4 @@
-"""FLM Model panel (top of Config tab)."""
+"""FLM Runtime and Model panel — version info, active model, model download (top of Config tab)."""
 
 from __future__ import annotations
 
@@ -22,17 +22,15 @@ from tui.dashboard._daemon import (
 )
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_DEFAULT_TIMEOUT = 15.0
 
 
 class FlmModelPanel(Vertical):
-    """Interactive FLM model block for the Config tab.
+    """FLM Runtime and Model panel for the Config tab.
 
-    Provides:
-    - A `Select` to switch the active model (lists installed models).
-    - A `Select` to pick a not-yet-installed model to download.
-    - An inline spinner + status text + cancel button for pull progress.
-    - A spinner + status line while the FLM server is being restarted on
-      an active-model change.
+    Three inline columns: current FLM runtime version | active-model Select |
+    download-model Select.  Also hosts the pull-progress row and restart
+    spinner that were always part of this panel.
     """
 
     DEFAULT_CSS = """
@@ -44,18 +42,48 @@ class FlmModelPanel(Vertical):
     }
     #flm-model-grid {
         layout: grid;
-        grid-size: 2;
-        grid-columns: 1fr 1fr;
+        grid-size: 3;
+        grid-columns: 30% 34% 34%;
         grid-gutter: 1;
         height: auto;
     }
-    #flm-active-col, #flm-download-col {
+    #flm-runtime-col, #flm-active-col, #flm-download-col {
         height: auto;
+    }
+    #flm-version-row {
+        layout: horizontal;
+        height: auto;
+    }
+    #flm-version-box {
+        border: tall $border-blurred;
+        background: $surface;
+        height: 3;
+        padding: 0 1;
+        width: 85%;
+    }
+    #flm-check-update-btn {
+        width: 3;
+        height: 3;
+        padding: 0 1;
+        content-align: center middle;
+        color: $text-muted;
+    }
+    #flm-check-update-btn:hover {
+        color: $text;
+        background: $surface;
     }
     #flm-active-model-select { margin-bottom: 0; }
     #flm-download-select { margin-bottom: 0; }
-    #flm-restart-status-line { display: none; }
+    #flm-restart-status-line { display: none; margin-top: 1; }
     #flm-restart-status-line.active { display: block; }
+    #flm-update-status {
+        height: auto;
+        display: none;
+        margin-top: 1;
+    }
+    #flm-update-status.-visible {
+        display: block;
+    }
     /* Pull progress row — hidden by default, shown via .active */
     #flm-pull-row { display: none; height: auto; margin-top: 1; }
     #flm-pull-row.active { display: block; }
@@ -106,10 +134,22 @@ class FlmModelPanel(Vertical):
         self._last_dl_select_refresh_at: float = 0.0
         # Cached option names — skip set_options when unchanged.
         self._last_dl_select_options: list[str] = []
+        # Version / update-check state (relocated from FlmRuntimePanel).
+        self._current_version: str = ""
+        self._latest_version: str = ""
+        self._has_update: bool = False
+        self._status_timer: Any = None
 
     def compose(self) -> ComposeResult:
-        yield Static("FLM Model", classes="panel-header")
+        yield Static("FLM Runtime and Model", classes="panel-header")
         with Vertical(id="flm-model-grid"):
+            # --- Column 1: FLM runtime version ---
+            with Vertical(id="flm-runtime-col"):
+                yield Static("Current version", classes="subsection-header")
+                with Horizontal(id="flm-version-row"):
+                    yield Static("[dim](checking…)[/]", id="flm-version-box")
+                    yield Static("🗘 ", id="flm-check-update-btn")
+            # --- Column 2: Active model ---
             with Vertical(id="flm-active-col"):
                 yield Static("Active model", classes="subsection-header")
                 yield Select(
@@ -120,7 +160,7 @@ class FlmModelPanel(Vertical):
                     id="flm-active-model-select",
                     disabled=True,
                 )
-                yield Static("", id="flm-restart-status-line")
+            # --- Column 3: Download a model ---
             with Vertical(id="flm-download-col"):
                 yield Static("Download a model", classes="subsection-header")
                 yield Select(
@@ -131,6 +171,9 @@ class FlmModelPanel(Vertical):
                     id="flm-download-select",
                     disabled=True,
                 )
+        # Full-width status lines below the three-column grid.
+        yield Static("", id="flm-restart-status-line")
+        yield Static("", id="flm-update-status")
         with Horizontal(id="flm-pull-row"):
             yield Static("", id="flm-pull-spinner")
             yield Static("", id="flm-pull-text", classes="pull-text")
@@ -420,6 +463,8 @@ class FlmModelPanel(Vertical):
     def on_click(self, event: Click) -> None:
         if event.widget.id == "flm-cancel-pull-btn":
             self.run_worker(self._cancel_pull, exclusive=True)
+        elif event.widget.id == "flm-check-update-btn":
+            self.run_worker(self._do_update_check, exclusive=True)
 
     # ---- Workers ----
 
@@ -557,3 +602,103 @@ class FlmModelPanel(Vertical):
             self.app.notify(
                 f"Cancel failed: {exc}", severity="error", timeout=6
             )
+
+    # ---- Version info (relocated from FlmRuntimePanel) ----
+
+    def update_version_info(self, data: dict) -> None:
+        """Update version display and update status from a flm_update_check result.
+
+        ``data`` is the ``result`` dict returned by the daemon action::
+
+            {"current": "0.9.43", "latest": "0.9.44",
+             "has_update": True, "cached": True, "stale": False, …}
+        """
+        self._current_version = str(data.get("current") or "").strip()
+        self._latest_version = str(data.get("latest") or "").strip()
+        self._has_update = bool(data.get("has_update", False))
+
+        # -- version box --
+        try:
+            box = self.query_one("#flm-version-box", Static)
+            if self._current_version:
+                box.update(self._current_version)
+            else:
+                box.update("[yellow]not detected[/]")
+        except Exception:
+            pass
+
+    # ---- Status auto-hide ----
+
+    def _schedule_status_hide(self) -> None:
+        """Cancel any pending hide timer and schedule a new one in 5s."""
+        if self._status_timer is not None:
+            self._status_timer.cancel()
+        self._status_timer = self.set_timer(5.0, self._hide_update_status)
+
+    def _hide_update_status(self) -> None:
+        """Remove the -visible class from the status line (timer callback)."""
+        self._status_timer = None
+        try:
+            self.query_one("#flm-update-status", Static).remove_class("-visible")
+        except Exception:
+            pass
+
+    # ---- Workers ----
+
+    async def _do_update_check(self) -> None:
+        """Force a live FLM update check against GitHub releases."""
+        icon: Static | None = None
+        try:
+            icon = self.query_one("#flm-check-update-btn", Static)
+            icon.update("…")
+        except Exception:
+            pass
+
+        try:
+            resp = await asyncio.to_thread(
+                _daemon_post, "flm_update_check", {"force": True},
+                timeout=_DEFAULT_TIMEOUT,
+            )
+            if resp.get("ok"):
+                self.update_version_info(resp.get("result") or {})
+                # Show status once (auto-hides after 5s).
+                try:
+                    data = resp.get("result") or {}
+                    latest = str(data.get("latest") or "").strip()
+                    has_update = bool(data.get("has_update", False))
+                    status = self.query_one("#flm-update-status", Static)
+                    if latest and has_update:
+                        status.update(
+                            f"[yellow]FLM {latest} available, "
+                            f"rebuild for updated runtime.[/]"
+                        )
+                        status.add_class("-visible")
+                        self._schedule_status_hide()
+                    elif latest and not has_update:
+                        status.update("[yellow]FLM up to date ✓[/]")
+                        status.add_class("-visible")
+                        self._schedule_status_hide()
+                except Exception:
+                    pass
+            else:
+                try:
+                    status = self.query_one("#flm-update-status", Static)
+                    status.update(f"[red]Update check failed: {resp.get('error', 'unknown')}[/]")
+                    status.add_class("-visible")
+                    self._schedule_status_hide()
+                except Exception:
+                    pass
+        except Exception as exc:
+            try:
+                status = self.query_one("#flm-update-status", Static)
+                status.update(f"[red]Update check error: {exc}[/]")
+                status.add_class("-visible")
+                self._schedule_status_hide()
+            except Exception:
+                pass
+        finally:
+            if icon is not None:
+                try:
+                    icon.update("🗘 ")
+                except Exception:
+                    pass

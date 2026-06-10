@@ -271,6 +271,13 @@ class ChatWidget(Container):
         # to avoid overwriting _llm_model with stale data from the daemon
         # before its config_snapshot has converged after a model change.
         self._model_set_at: float = 0.0
+        # Chat config values — driven by config.json chat_config section,
+        # populated by _refresh_config on each daemon snapshot poll.
+        self._temperature: float = 0.3
+        self._max_tokens: int = 1024
+        self._system_prompt: str = "You are a concise, helpful local assistant."
+        self._request_timeout: int = 240
+        self._context_window_turns: int = 12
         # Cached reference to the footer Static — set in on_mount.
         # Avoids query_one() calls from async worker contexts (which can
         # silently fail when the Chat tab is not the active tab).
@@ -294,7 +301,7 @@ class ChatWidget(Container):
         self._status_widget = self.query_one("#connection-status", Static)
         self._status_widget.update("Connecting to daemon…")
         self._refresh_config()
-        self.set_interval(30.0, self._refresh_config)
+        self.set_interval(5.0, self._refresh_config)
 
     # ---- Config refresh ----
 
@@ -317,7 +324,7 @@ class ChatWidget(Container):
                 # returning, so by the time `flm_model_loaded` goes True the
                 # model has responded to a real API call — not just opened a
                 # port.
-                model_loaded = bool(result.get("flm_model_loaded", False))
+                model_loaded = bool(result.get("flm_config", {}).get("flm_model_loaded", False))
 
                 # Has set_model() been called recently?  If so we trust the
                 # explicitly pushed model (it came from a daemon-confirmed
@@ -340,6 +347,17 @@ class ChatWidget(Container):
                     # Daemon has no model configured (e.g. FLM not running yet).
                     self._llm_model = ""
                     model_display = "(none)"
+
+                # Read chat config (temperature, max_tokens, system_prompt,
+                # request timeout) from the daemon snapshot.
+                chat_cfg = result.get("chat_config") or {}
+                self._temperature = float(chat_cfg.get("temperature") or self._temperature)
+                self._max_tokens = int(chat_cfg.get("max_tokens") or self._max_tokens)
+                sp = str(chat_cfg.get("system_prompt") or "").strip()
+                if sp:
+                    self._system_prompt = sp
+                self._request_timeout = int(chat_cfg.get("request_timeout_s") or self._request_timeout)
+                self._context_window_turns = int(chat_cfg.get("context_window_turns") or self._context_window_turns)
 
                 self._daemon_available = True
                 self._update_status(f"Model: {model_display}  |  Daemon: connected")
@@ -529,6 +547,14 @@ class ChatWidget(Container):
         self._add_message("user", text)
         self._add_message("assistant", "…", is_streaming=True)
 
+        # Trim history to the last N complete exchanges (context_window_turns).
+        # Each exchange is a user↔assistant pair (2 messages). Add 2 for the
+        # current in-progress exchange (<user_msg>, "…") that was just added.
+        if self._context_window_turns > 0:
+            max_msgs = self._context_window_turns * 2 + 2
+            if len(self._history) > max_msgs:
+                self._history[:] = self._history[-max_msgs:]
+
         history = [{"role": m["role"], "content": m["content"]} for m in self._history]
 
         threading.Thread(
@@ -549,6 +575,10 @@ class ChatWidget(Container):
             )
             if not resp.get("ok"):
                 raise RuntimeError(str(resp.get("error") or "start failed"))
+            # Server started — schedule an immediate config refresh so the
+            # footer flips from "(none)" to the model name without waiting
+            # for the next poll interval (up to 30s with the old timer).
+            self.call_later(self._refresh_config)
         except Exception as exc:
             self.call_later(self._finalize_stream,
                             f"[red]Could not start LLM server: {exc}[/]")
@@ -556,15 +586,15 @@ class ChatWidget(Container):
 
         import urllib.request
 
-        messages = [{"role": "system", "content": "You are a concise, helpful local assistant."}]
+        messages = [{"role": "system", "content": self._system_prompt}]
         messages.extend(history)
 
         body = json.dumps({
             "model": self._llm_model,
             "messages": messages,
             "stream": True,
-            "temperature": 0.3,
-            "max_tokens": 1024,
+            "temperature": self._temperature,
+            "max_tokens": self._max_tokens,
         }).encode("utf-8")
 
         req = urllib.request.Request(
@@ -579,7 +609,7 @@ class ChatWidget(Container):
 
         full_content = ""
         try:
-            with urllib.request.urlopen(req, timeout=240) as resp:
+            with urllib.request.urlopen(req, timeout=self._request_timeout) as resp:
                 buffer = ""
                 while True:
                     chunk = resp.read(4096)
