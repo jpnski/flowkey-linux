@@ -311,8 +311,7 @@ flowkey-linux/
 │   │       ├── config_pane/     # Config pane (5 interactive sub-panels)
 │   │       │   ├── __init__.py
 │   │       │   ├── chat_settings.py
-│   │       │   ├── flm_panel.py
-│   │       │   ├── flm_runtime.py
+│   │       │   ├── flm.py
 │   │       │   ├── hotkeys.py
 │   │       │   └── input_processing.py
 │   │       ├── telemetry.py

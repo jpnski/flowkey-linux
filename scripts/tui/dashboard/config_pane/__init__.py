@@ -6,7 +6,7 @@ from textual.containers import Vertical
 from tui.dashboard._daemon import _daemon_post
 from tui.dashboard._pane import Pane
 from tui.dashboard.config_pane.chat_settings import ChatSettingsPanel
-from tui.dashboard.config_pane.flm_panel import FlmModelPanel
+from tui.dashboard.config_pane.flm import FlmModelPanel
 from tui.dashboard.config_pane.hotkeys import HotkeysPanel
 from tui.dashboard.config_pane.input_processing import InputProcessingPanel
 

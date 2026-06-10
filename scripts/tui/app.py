@@ -24,13 +24,13 @@ import sys
 import threading
 from pathlib import Path
 
+import config as _config
 import paths as _paths
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Input, TabbedContent, TabPane
+from textual.widgets import Input, TabbedContent, TabPane, TextArea
 
-import config as _config
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
 
@@ -125,6 +125,9 @@ class FlowkeyScreen(Screen):
         if isinstance(focused, Input) and focused.value:
             focused.value = ""
             focused.cursor_position = 0
+            return
+        if isinstance(focused, TextArea) and focused.text:
+            focused.clear()
             return
         self.app.request_quit()
 

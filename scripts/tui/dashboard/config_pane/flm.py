@@ -134,7 +134,7 @@ class FlmModelPanel(Vertical):
         self._last_dl_select_refresh_at: float = 0.0
         # Cached option names — skip set_options when unchanged.
         self._last_dl_select_options: list[str] = []
-        # Version / update-check state (relocated from FlmRuntimePanel).
+        # Version / update-check state.
         self._current_version: str = ""
         self._latest_version: str = ""
         self._has_update: bool = False
@@ -603,7 +603,7 @@ class FlmModelPanel(Vertical):
                 f"Cancel failed: {exc}", severity="error", timeout=6
             )
 
-    # ---- Version info (relocated from FlmRuntimePanel) ----
+    # ---- Version info ----
 
     def update_version_info(self, data: dict) -> None:
         """Update version display and update status from a flm_update_check result.

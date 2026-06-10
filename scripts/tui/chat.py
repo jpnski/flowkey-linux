@@ -23,9 +23,10 @@ from pathlib import Path
 
 import loopback_http
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.events import Click
-from textual.widgets import Button, Input, Markdown, Static
+from textual.widgets import Markdown, Static, TextArea
 
 log = logging.getLogger("flowkey.tui.chat")
 
@@ -208,17 +209,11 @@ class ChatWidget(Container):
         background: $surface;
     }
 
-    #chat-input-row > Horizontal {
-        height: 3;
-    }
-
     #chat-input {
         width: 1fr;
-    }
-
-    #send-btn {
-        width: 10;
-        margin-left: 1;
+        height: auto;
+        min-height: 3;
+        max-height: 12;
     }
 
     #connection-status {
@@ -256,9 +251,16 @@ class ChatWidget(Container):
     }
     """
 
+    BINDINGS = [
+        Binding("enter", "submit_chat", "Submit", priority=True),
+    ]
+
     def __init__(self) -> None:
         super().__init__()
         self._history: list[dict] = []
+        self._pending_multi_line: str | None = None
+        self._suppress_change: bool = False
+        self._prev_text: str = ""
         self._msg_seq: int = 0  # monotonically increasing counter for unique message IDs
         self._thread_id: str = uuid.uuid4().hex
         self._streaming_active = False
@@ -292,9 +294,11 @@ class ChatWidget(Container):
             yield MessageBubble("assistant", HELP_TEXT, show_role=False)
 
         with Vertical(id="chat-input-row"):
-            with Horizontal():
-                yield Input(placeholder="Type a message... (or /grammar, /help, ...)", id="chat-input")
-                yield Button("Send", id="send-btn", variant="primary")
+            yield TextArea(
+                placeholder="Type a message... (or /grammar, /help, ...)",
+                id="chat-input",
+                soft_wrap=True,
+            )
             yield Static("", id="connection-status")
 
     def on_mount(self) -> None:
@@ -388,18 +392,35 @@ class ChatWidget(Container):
 
     # ---- Input handling ----
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "chat-input":
-            self._process_input(event.value)
-            event.input.clear()
+    def action_submit_chat(self) -> None:
+        inp = self.query_one("#chat-input", TextArea)
+        if not inp.has_focus:
+            return
+        text = self._pending_multi_line or inp.text
+        if text.strip():
+            self._process_input(text)
+        inp.clear()
+        self._pending_multi_line = None
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "send-btn":
-            inp = self.query_one("#chat-input", Input)
-            text = inp.value
-            if text:
-                self._process_input(text)
-                inp.clear()
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if self._suppress_change:
+            return
+        if event.text_area.id == "chat-input":
+            text = event.text_area.text
+            if not text:
+                self._prev_text = ""
+                self._pending_multi_line = None
+                return
+            line_count = text.count("\n")
+            if line_count > 0:
+                self._pending_multi_line = text
+                prefix = self._prev_text
+                self._prev_text = f"{prefix} [{line_count} pasted lines]" if prefix else f"[{line_count} pasted lines]"
+                self._suppress_change = True
+                event.text_area.text = self._prev_text
+                self._suppress_change = False
+            else:
+                self._prev_text = text
 
     # ---- Message processing ----
 
