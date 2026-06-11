@@ -5,14 +5,15 @@ from textual.containers import Vertical
 
 from tui.dashboard._daemon import _daemon_post
 from tui.dashboard._pane import Pane
-from tui.dashboard.config_pane.chat_settings import ChatSettingsPanel
+from tui.dashboard.config_pane.chat_panel import ChatPanel
+from tui.dashboard.config_pane.chat_settings import FlmServerPanel
 from tui.dashboard.config_pane.flm import FlmModelPanel
 from tui.dashboard.config_pane.hotkeys import HotkeysPanel
 from tui.dashboard.config_pane.input_processing import InputProcessingPanel
 
 
 class ConfigPane(Pane):
-    """Config pane: hotkeys, model, performance mode + FlmModelPanel sub-widget."""
+    """Config pane: FLM server, model, chat, input processing, hotkeys."""
 
     DEFAULT_CSS = """
     .subsection-header {
@@ -28,7 +29,8 @@ class ConfigPane(Pane):
     def compose(self) -> ComposeResult:
         with Vertical(id="config-tab-root"):
             yield FlmModelPanel(id="flm-model-panel")
-            yield ChatSettingsPanel(id="chat-settings-panel")
+            yield FlmServerPanel(id="flm-server-panel")
+            yield ChatPanel(id="chat-panel")
             yield InputProcessingPanel(id="input-processing-panel")
             yield HotkeysPanel(id="hotkeys-panel")
 
@@ -56,16 +58,20 @@ class ConfigPane(Pane):
         model_loaded = False
         if config_resp.get("ok"):
             cfg = config_resp.get("result") or {}
-            active = str(cfg.get("flm_config", {}).get("active_model") or "")
-            model_loaded = bool(cfg.get("flm_config", {}).get("flm_model_loaded", False))
+            active = str(cfg.get("flm_server", {}).get("model") or "")
+            model_loaded = bool(cfg.get("flm_server", {}).get("flm_model_loaded", False))
 
-        # Feed tone preset + server settings to ChatSettingsPanel.
-        tone_preset = "formal"
+        # Read server config for FlmServerPanel.
         server_cfg: dict = {}
         if config_resp.get("ok"):
             cfg = config_resp.get("result") or {}
-            tone_preset = str(cfg.get("tone", {}).get("preset", "formal"))
-            server_cfg = cfg.get("flm_serving_config") or {}
+            server_cfg = cfg.get("flm_server") or {}
+
+        # Read chat config for ChatPanel.
+        chat_cfg: dict = {}
+        if config_resp.get("ok"):
+            cfg = config_resp.get("result") or {}
+            chat_cfg = cfg.get("chat") or {}
 
         # Fetch FLM runtime version info (uses server-side cache, ~24h TTL).
         flm_version_resp = _daemon_post("flm_update_check", {"cache_only": True})
@@ -86,10 +92,10 @@ class ConfigPane(Pane):
         self.call_later(self._update_input_processing_panel, input_processing_cfg)
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded, flm_runtime_data)
-        power_mode = cfg.get("flm_config", {}).get("power_mode", "balanced")
-        self.call_later(self._update_chat_settings_panel, tone_preset, server_cfg, power_mode)
+        self.call_later(self._update_server_panel, server_cfg)
+        self.call_later(self._update_chat_panel, chat_cfg)
 
-    def _update_hotkeys_panel(self, hotkeys: dict[str, str]) -> None:
+    def _update_hotkeys_panel(self, hotkeys: dict) -> None:
         try:
             panel = self.query_one(HotkeysPanel)
         except Exception:
@@ -119,14 +125,20 @@ class ConfigPane(Pane):
         if flm_runtime_data:
             panel.update_version_info(flm_runtime_data)
 
-    def _update_chat_settings_panel(self, tone_preset: str, server_cfg: dict,
-                                    power_mode: str = "balanced") -> None:
+    def _update_server_panel(self, server_cfg: dict) -> None:
         try:
-            panel = self.query_one(ChatSettingsPanel)
+            panel = self.query_one(FlmServerPanel)
         except Exception:
             return
-        panel.update_tone(tone_preset)
         panel.update_server_settings(
             auto_start=bool(server_cfg.get("auto_start", True)),
-            power_mode=str(power_mode),
+            power_mode=str(server_cfg.get("power_mode", "balanced")),
+            log_to_file=bool(server_cfg.get("log_to_file", True)),
         )
+
+    def _update_chat_panel(self, chat_cfg: dict) -> None:
+        try:
+            panel = self.query_one(ChatPanel)
+        except Exception:
+            return
+        panel.update_config(chat_cfg)

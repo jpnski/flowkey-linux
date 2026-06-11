@@ -31,15 +31,15 @@ DEFAULT_CHAT_MODEL = "gemma4-it:e4b"
 
 DEFAULT_CONFIG = {
     "theme": "textual-dark",
-    "flm_config": {
-        "api_url": "http://127.0.0.1:52625",
-        "api_call_timeout_s": 60,
-        "power_mode": "balanced",
-        "active_model": DEFAULT_CHAT_MODEL,
+    "flm_api": {
+        "url": "http://127.0.0.1:52625",
+        "timeout_s": 60,
     },
-    "flm_serving_config": {
+    "flm_server": {
+        "model": DEFAULT_CHAT_MODEL,
+        "power_mode": "balanced",
         "auto_start": True,
-        "proc_startup_timeout_s": 25,
+        "startup_timeout_s": 25,
         "log_to_file": False,
         "log_file": "flm_server.log",
         "extra_args": [],
@@ -57,7 +57,7 @@ DEFAULT_CONFIG = {
         "capture_note": "ctrl+alt+n",
         "ask_chat": "ctrl+alt+a",
     },
-    "history_config": {
+    "history": {
         "store_text": False,
         "hist_file": "grammar_fix_history.jsonl",
     },
@@ -77,7 +77,7 @@ DEFAULT_CONFIG = {
         "generate_title": True,
         "generate_summary": True,
     },
-    "chat_config": {
+    "chat": {
         "request_timeout_s": 240,
         "temperature": 0.3,
         "max_tokens": 1024,
@@ -90,7 +90,7 @@ DEFAULT_CONFIG = {
             "shortcut": "Ctrl+Shift+G",
             "description": "Fix grammar and wording while preserving meaning.",
             "system_prompt": "Fix grammar, spelling, punctuation, capitalization, and obvious wording mistakes. Preserve meaning. Keep emoji/smiley characters exactly as written when possible. Return only corrected text.",
-            "max_tokens": {"short": 160, "medium": 220, "long": 180},
+            "max_tokens": {"short": 160, "medium": 220, "long": 280},
         },
         "prompt": {
             "label": "Prompt fix (Claude)",
@@ -102,13 +102,13 @@ DEFAULT_CONFIG = {
             "label": "Summarize",
             "description": "3-bullet summary of selected text (use summarize: prefix).",
             "system_prompt": "Summarize the user text as exactly 3 bullet points. Each bullet is one sentence, factual, no preamble or sign-off. Preserve emoji/smiley characters when relevant. Return only the bullets.",
-            "max_tokens": {"short": 160, "medium": 220, "long": 180},
+            "max_tokens": {"short": 160, "medium": 220, "long": 280},
         },
         "explain": {
             "label": "Explain code/regex/SQL",
             "description": "Plain-English explanation of selected code, regex, or query (use explain: prefix).",
             "system_prompt": "Explain the selected code, regex, or SQL in 2-3 plain-English sentences. Call out one non-obvious edge case if any. No preamble. Return only the explanation.",
-            "max_tokens": {"short": 160, "medium": 220, "long": 180},
+            "max_tokens": {"short": 160, "medium": 220, "long": 280},
         },
         "tone": {
             "label": "Tone shift",
@@ -120,7 +120,7 @@ DEFAULT_CONFIG = {
                 "friendly": {"system_prompt": "Rewrite the user text in a warm, friendly tone. Preserve meaning and emoji/smiley. Return only the rewritten text."},
             },
             "system_prompt": "Rewrite the user text in a formal, professional tone. Preserve meaning and emoji/smiley. Return only the rewritten text.",
-            "max_tokens": {"short": 160, "medium": 220, "long": 180},
+            "max_tokens": {"short": 160, "medium": 220, "long": 280},
         },
     },
 }
@@ -168,9 +168,9 @@ def deep_merge(dst: dict, src: dict) -> None:
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
-_PATCH_FLM_CONFIG_KEYS = frozenset({"active_model", "api_url", "api_call_timeout_s", "power_mode"})
-_PATCH_FLM_SERVING_KEYS = frozenset({"auto_start", "log_file", "log_to_file", "extra_args", "proc_startup_timeout_s"})
-_PATCH_HISTORY_CONFIG_KEYS = frozenset({"hist_file", "store_text"})
+_PATCH_FLM_API_KEYS = frozenset({"url", "timeout_s"})
+_PATCH_FLM_SERVER_KEYS = frozenset({"model", "power_mode", "auto_start", "startup_timeout_s", "log_file", "log_to_file", "extra_args"})
+_PATCH_HISTORY_KEYS = frozenset({"hist_file", "store_text"})
 _PATCH_INPUT_PROCESSING_KEYS = frozenset({
     "chunk_size",
     "enabled",
@@ -187,6 +187,13 @@ _PATCH_NOTES_KEYS = frozenset({
     "vault_dir",
 })
 _PATCH_HOTKEYS_KEYS = frozenset({"ask_chat", "capture_note", "grammar_fix", "open_chat"})
+_PATCH_CHAT_KEYS = frozenset({
+    "request_timeout_s",
+    "temperature",
+    "max_tokens",
+    "context_window_turns",
+    "system_prompt",
+})
 _PATCH_TONE_KEYS = frozenset({"preset"})
 
 
@@ -214,7 +221,7 @@ def validate_flm_base_url(url: str) -> str:
     """Reject non-loopback FLM URLs (SSRF guard for tampered config)."""
     cleaned = str(url or "").strip().rstrip("/")
     if not cleaned:
-        cleaned = str(DEFAULT_CONFIG.get("flm_config", {}).get("api_url") or "http://127.0.0.1:52625")
+        cleaned = str(DEFAULT_CONFIG.get("flm_api", {}).get("url") or "http://127.0.0.1:52625")
     parsed = urlparse(cleaned)
     if parsed.scheme not in ("http", "https"):
         raise ValueError(f"flm_base_url must use http/https, got {url!r}")
@@ -230,16 +237,16 @@ def filter_config_patch(patch: dict) -> dict:
         raise ValueError("patch must be a JSON object")
     out: dict = {}
     for key, value in patch.items():
-        if key == "flm_config" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_FLM_CONFIG_KEYS}
+        if key == "flm_api" and isinstance(value, dict):
+            filtered = {k: v for k, v in value.items() if k in _PATCH_FLM_API_KEYS}
             if filtered:
                 out[key] = filtered
-        elif key == "flm_serving_config" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_FLM_SERVING_KEYS}
+        elif key == "flm_server" and isinstance(value, dict):
+            filtered = {k: v for k, v in value.items() if k in _PATCH_FLM_SERVER_KEYS}
             if filtered:
                 out[key] = filtered
-        elif key == "history_config" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_HISTORY_CONFIG_KEYS}
+        elif key == "history" and isinstance(value, dict):
+            filtered = {k: v for k, v in value.items() if k in _PATCH_HISTORY_KEYS}
             if filtered:
                 out[key] = filtered
         elif key == "input_processing" and isinstance(value, dict):
@@ -248,6 +255,10 @@ def filter_config_patch(patch: dict) -> dict:
                 out[key] = filtered
         elif key == "notes" and isinstance(value, dict):
             filtered = {k: v for k, v in value.items() if k in _PATCH_NOTES_KEYS}
+            if filtered:
+                out[key] = filtered
+        elif key == "chat" and isinstance(value, dict):
+            filtered = {k: v for k, v in value.items() if k in _PATCH_CHAT_KEYS}
             if filtered:
                 out[key] = filtered
         elif key == "hotkeys" and isinstance(value, dict):

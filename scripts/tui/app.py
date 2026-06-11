@@ -22,11 +22,12 @@ import os
 import signal
 import sys
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 
 import config as _config
 import paths as _paths
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import Input, TabbedContent, TabPane, TextArea
@@ -146,6 +147,13 @@ class FlowkeyTUI(App):
     BINDINGS: list[Binding] = []
     # Seconds the user has to press Ctrl+C a second time to confirm quit.
     QUIT_PRESS_WINDOW = 3.0
+
+    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+        yield SystemCommand(
+            "Theme",
+            "Change the current theme",
+            self.action_change_theme,
+        )
 
     def __init__(self, parent_pid: int = 0, ingest_text: str = "") -> None:
         super().__init__()

@@ -45,6 +45,22 @@ def _update(**fields) -> None:
         _job.update(fields)
 
 
+def _reset_to_idle() -> None:
+    """Reset the job dict back to idle (timer callback)."""
+    with _lock:
+        _job.update({
+            "state": "idle", "model": "", "percent": 0.0,
+            "message": "", "error": "",
+            "started_at": 0.0, "finished_at": 0.0,
+        })
+
+
+def _schedule_reset(delay: float = 10.0) -> None:
+    t = threading.Timer(delay, _reset_to_idle)
+    t.daemon = True
+    t.start()
+
+
 def status() -> dict:
     with _lock:
         return dict(_job)
@@ -195,10 +211,12 @@ def start_pull(model: str, *,
         except FileNotFoundError:
             log.warning("flm CLI not found in PATH while pulling %s", model)
             _update(state="error", error="flm CLI not found in PATH", finished_at=time.time())
+            _schedule_reset()
             return
         except Exception as exc:
             log.exception("pull failed for %s", model)
             _update(state="error", error=str(exc), finished_at=time.time())
+            _schedule_reset()
             return
         with _lock:
             was_cancelled = _job.get("state") == "cancelled"
@@ -209,6 +227,7 @@ def start_pull(model: str, *,
             _update(state="done", percent=100.0, message=f"{model} downloaded.", finished_at=time.time())
         else:
             _update(state="error", error=f"flm pull exited with code {rc}", finished_at=time.time())
+        _schedule_reset()
 
     _thread = threading.Thread(target=worker, name="flowkey-pull", daemon=True)
     _thread.start()
@@ -234,6 +253,7 @@ def cancel_pull() -> dict:
             }
         _job["state"] = "cancelled"
         _job["message"] = "cancellation requested…"
+        _schedule_reset()
         proc = _proc
     if proc is not None:
         try:

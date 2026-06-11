@@ -58,7 +58,7 @@ def save_config(cfg: dict) -> None:
 
 def refresh_runtime_config() -> None:
     global CONFIG, FLM_BASE_URL, FLM_MODEL, FLM_TIMEOUT_SECONDS
-    global HISTORY_PATH, HISTORY_STORE_TEXT, FLM_CFG, SERVING_CFG, SERVER_AUTO_START
+    global HISTORY_PATH, HISTORY_STORE_TEXT, FLM_CFG, SERVER_CFG, SERVER_AUTO_START
     global FLM_POWER_MODE, SERVING_STARTUP_TIMEOUT_S
     global SERVING_EXTRA_ARGS, SERVER_LOG_TO_FILE, SERVER_LOG_FILE
     global INPUT_PROCESSING_CFG, GRAMMAR_IGNORE_WORDS
@@ -66,30 +66,30 @@ def refresh_runtime_config() -> None:
     CONFIG = load_config()
     try:
         FLM_BASE_URL = config.validate_flm_base_url(
-            str(CONFIG.get("flm_config", {}).get("api_url") or "http://127.0.0.1:52625")
+            str(CONFIG.get("flm_api", {}).get("url") or "http://127.0.0.1:52625")
         )
     except ValueError as exc:
         log.warning("invalid flm_base_url in config, using default: %s", exc)
         FLM_BASE_URL = "http://127.0.0.1:52625"
-    FLM_MODEL = str(CONFIG.get("flm_config", {}).get("active_model") or "gemma4-it:e4b").strip()
+    FLM_MODEL = str(CONFIG.get("flm_server", {}).get("model") or "gemma4-it:e4b").strip()
     if FLM_MODEL and not _is_selectable_chat_model(FLM_MODEL):
         log.warning(
-            "active_model %r in config is not a chat-selectable model; "
+            "model %r in config is not a chat-selectable model; "
             "falling back to default %r",
             FLM_MODEL, config.DEFAULT_CHAT_MODEL,
         )
         FLM_MODEL = config.DEFAULT_CHAT_MODEL
-    FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_config", {}).get("api_call_timeout_s") or 30)
-    HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history_config", {}).get("hist_file") or "grammar_fix_history.jsonl")
-    HISTORY_STORE_TEXT = bool(CONFIG.get("history_config", {}).get("store_text", False))
-    FLM_CFG = CONFIG.get("flm_config") or {}
-    SERVING_CFG = CONFIG.get("flm_serving_config") or {}
-    SERVER_AUTO_START = bool(SERVING_CFG.get("auto_start", True))
-    FLM_POWER_MODE = str(FLM_CFG.get("power_mode") or "balanced").strip().lower()
-    SERVING_STARTUP_TIMEOUT_S = int(SERVING_CFG.get("proc_startup_timeout_s") or 25)
-    SERVING_EXTRA_ARGS = [str(a) for a in (SERVING_CFG.get("extra_args") or [])]
-    SERVER_LOG_TO_FILE = bool(SERVING_CFG.get("log_to_file", True))
-    SERVER_LOG_FILE = str(SERVING_CFG.get("log_file") or "flm_server.log")
+    FLM_TIMEOUT_SECONDS = int(CONFIG.get("flm_api", {}).get("timeout_s") or 30)
+    HISTORY_PATH = _paths.DATA_DIR / str(CONFIG.get("history", {}).get("hist_file") or "grammar_fix_history.jsonl")
+    HISTORY_STORE_TEXT = bool(CONFIG.get("history", {}).get("store_text", False))
+    FLM_CFG = CONFIG.get("flm_api") or {}
+    SERVER_CFG = CONFIG.get("flm_server") or {}
+    SERVER_AUTO_START = bool(SERVER_CFG.get("auto_start", True))
+    FLM_POWER_MODE = str(SERVER_CFG.get("power_mode") or "balanced").strip().lower()
+    SERVING_STARTUP_TIMEOUT_S = int(SERVER_CFG.get("startup_timeout_s") or 25)
+    SERVING_EXTRA_ARGS = [str(a) for a in (SERVER_CFG.get("extra_args") or [])]
+    SERVER_LOG_TO_FILE = bool(SERVER_CFG.get("log_to_file", True))
+    SERVER_LOG_FILE = str(SERVER_CFG.get("log_file") or "flm_server.log")
     INPUT_PROCESSING_CFG = CONFIG.get("input_processing") or {}
     GRAMMAR_IGNORE_WORDS = [str(w) for w in (CONFIG.get("grammar_ignore_words") or []) if str(w).strip()]
 
@@ -228,7 +228,7 @@ def stop_flm_server(force: bool = False) -> bool:
 
 def get_power_mode() -> str:
     cfg = load_config()
-    mode = str((cfg.get("flm_config") or {}).get("power_mode") or "balanced").strip().lower()
+    mode = str((cfg.get("flm_server") or {}).get("power_mode") or "balanced").strip().lower()
     return mode if mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
 
 
@@ -237,7 +237,7 @@ def set_power_mode(mode: str) -> str:
     if normalized not in {"powersaver", "balanced", "performance", "turbo"}:
         raise RuntimeError(f"Invalid mode '{normalized}'. Use powersaver, balanced, performance, or turbo.")
     cfg = load_config()
-    cfg.setdefault("flm_config", {})["power_mode"] = normalized
+    cfg.setdefault("flm_server", {})["power_mode"] = normalized
     save_config(cfg)
     return normalized
 
@@ -257,7 +257,7 @@ def toggle_power_mode() -> str:
 
 def get_history_text_mode() -> str:
     cfg = load_config()
-    enabled = bool(cfg.get("history_config", {}).get("store_text", False))
+    enabled = bool(cfg.get("history", {}).get("store_text", False))
     return "visible" if enabled else "redacted"
 
 
@@ -266,7 +266,7 @@ def set_history_text_mode(mode: str) -> str:
     if normalized not in {"visible", "redacted"}:
         raise RuntimeError("Invalid history mode. Use visible or redacted.")
     cfg = load_config()
-    cfg.setdefault("history_config", {})["store_text"] = normalized == "visible"
+    cfg.setdefault("history", {})["store_text"] = normalized == "visible"
     save_config(cfg)
     return normalized
 
@@ -556,15 +556,15 @@ def apply_config_patch(patch: dict) -> str:
     cfg = load_config()
     _deep_merge(cfg, filtered)
 
-    flm_patch = filtered.get("flm_config") if isinstance(filtered.get("flm_config"), dict) else None
+    flm_patch = filtered.get("flm_server") if isinstance(filtered.get("flm_server"), dict) else None
     new_model = None
-    if flm_patch and "active_model" in flm_patch:
-        new_model = str(flm_patch["active_model"]).strip()
+    if flm_patch and "model" in flm_patch:
+        new_model = str(flm_patch["model"]).strip()
         if not new_model:
-            raise RuntimeError("active_model cannot be empty.")
+            raise RuntimeError("model cannot be empty.")
         if not _is_selectable_chat_model(new_model):
             raise RuntimeError(
-                f"active_model {new_model!r} is not a chat-selectable model. "
+                f"model {new_model!r} is not a chat-selectable model. "
                 f"Embedding/ASR models are reserved for side-loading; pick a chat model instead."
             )
         models_info = list_flm_models()
@@ -574,7 +574,7 @@ def apply_config_patch(patch: dict) -> str:
                 raise RuntimeError(
                     f"Model '{new_model}' is not installed. Pull it first or pick another."
                 )
-        chat_cfg = cfg.get("chat_config")
+        chat_cfg = cfg.get("chat")
         if isinstance(chat_cfg, dict):
             chat_cfg.pop("llm_model", None)
             chat_cfg.pop("llm_base_url", None)
@@ -637,33 +637,33 @@ def build_config_snapshot() -> dict:
     input_processing_cfg = cfg.get("input_processing") or {}
     hotkeys_cfg = cfg.get("hotkeys") or {}
     tone_cfg = ((cfg.get("modes") or {}).get("tone") or {})
-    flm_cfg = cfg.get("flm_config") or {}
-    serving_cfg = cfg.get("flm_serving_config") or {}
-    chat_cfg = cfg.get("chat_config") or {}
-    history_cfg = cfg.get("history_config") or {}
+    flm_api_cfg = cfg.get("flm_api") or {}
+    flm_server_cfg = cfg.get("flm_server") or {}
+    chat_cfg = cfg.get("chat") or {}
+    history_cfg = cfg.get("history") or {}
     return {
         "version": APP_VERSION,
-        "flm_config": {
-            "api_url": str(flm_cfg.get("api_url") or "http://127.0.0.1:52625"),
-            "active_model": str(flm_cfg.get("active_model") or FLM_MODEL),
-            "api_call_timeout_s": int(flm_cfg.get("api_call_timeout_s") or 30),
-            "power_mode": str(flm_cfg.get("power_mode") or "balanced"),
+        "flm_api": {
+            "url": str(flm_api_cfg.get("url") or "http://127.0.0.1:52625"),
+            "timeout_s": int(flm_api_cfg.get("timeout_s") or 60),
+        },
+        "flm_server": {
+            "model": str(flm_server_cfg.get("model") or FLM_MODEL),
+            "power_mode": str(flm_server_cfg.get("power_mode") or "balanced"),
+            "auto_start": bool(flm_server_cfg.get("auto_start", True)),
+            "startup_timeout_s": int(flm_server_cfg.get("startup_timeout_s") or 25),
+            "log_to_file": bool(flm_server_cfg.get("log_to_file", True)),
+            "log_file": str(flm_server_cfg.get("log_file") or "flm_server.log"),
             "flm_model_loaded": is_flm_server_reachable(),
         },
-        "flm_serving_config": {
-            "auto_start": bool(serving_cfg.get("auto_start", True)),
-            "proc_startup_timeout_s": int(serving_cfg.get("proc_startup_timeout_s") or 25),
-            "log_to_file": bool(serving_cfg.get("log_to_file", True)),
-            "log_file": str(serving_cfg.get("log_file") or "flm_server.log"),
-        },
-        "chat_config": {
+        "chat": {
             "request_timeout_s": int(chat_cfg.get("request_timeout_s") or 240),
             "temperature": float(chat_cfg.get("temperature") or 0.3),
             "max_tokens": int(chat_cfg.get("max_tokens") or 1024),
             "context_window_turns": int(chat_cfg.get("context_window_turns") or 12),
             "system_prompt": str(chat_cfg.get("system_prompt") or ""),
         },
-        "history_config": {
+        "history": {
             "store_text": bool(history_cfg.get("store_text", False)),
         },
         "input_processing": {

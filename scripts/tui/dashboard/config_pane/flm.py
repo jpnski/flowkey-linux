@@ -288,7 +288,7 @@ class FlmModelPanel(Vertical):
             if self._not_installed_models != self._last_dl_select_options:
                 options = [("(select a model)", "")] + [
                     (
-                        f"{name} ⭐" if name in _STARRED_TAGS else name,
+                        f" {name}" if name in _STARRED_TAGS else name,
                         name,
                     )
                     for name in self._not_installed_models
@@ -500,7 +500,7 @@ class FlmModelPanel(Vertical):
 
         try:
             resp = await asyncio.to_thread(
-                _daemon_post, "apply_config_patch", {"patch": {"flm_config": {"active_model": new_value}}},
+                _daemon_post, "apply_config_patch", {"patch": {"flm_server": {"model": new_value}}},
                 timeout=_DAEMON_TIMEOUT_MODEL_CHANGE,
             )
             if not resp.get("ok"):
@@ -557,7 +557,7 @@ class FlmModelPanel(Vertical):
             )
             if resp.get("ok") and resp.get("result") == "stopped":
                 self.app.notify(
-                    "Model unloaded from memory",
+                    "Model unloading from memory...",
                     severity="information", timeout=4,
                 )
             elif resp.get("ok") and resp.get("result") == "not_running":

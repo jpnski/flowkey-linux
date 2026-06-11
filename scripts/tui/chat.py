@@ -74,6 +74,8 @@ HELP_TEXT = """
   explain: <text>    — Same as /explain
 
 [i]Shortcuts:[/i]
+  F1                 — Chat
+  F2                 — Dashboard
   Ctrl+P             — Commands
   Ctrl+C             — Quit (press twice)
 """
@@ -273,7 +275,7 @@ class ChatWidget(Container):
         # to avoid overwriting _llm_model with stale data from the daemon
         # before its config_snapshot has converged after a model change.
         self._model_set_at: float = 0.0
-        # Chat config values — driven by config.json chat_config section,
+        # Chat config values — driven by config.json chat section,
         # populated by _refresh_config on each daemon snapshot poll.
         self._temperature: float = 0.3
         self._max_tokens: int = 1024
@@ -320,15 +322,15 @@ class ChatWidget(Container):
             )
             if resp.get("ok") and isinstance(resp.get("result"), dict):
                 result = resp["result"]
-                self._llm_base_url = str(result.get("flm_config", {}).get("api_url") or self._llm_base_url)
+                self._llm_base_url = str(result.get("flm_api", {}).get("url") or self._llm_base_url)
 
-                daemon_model = str(result.get("flm_config", {}).get("active_model") or "")
+                daemon_model = str(result.get("flm_server", {}).get("model") or "")
                 # True when the FLM server is reachable (TCP port open). The
                 # config patch flow additionally runs a warmup request before
                 # returning, so by the time `flm_model_loaded` goes True the
                 # model has responded to a real API call — not just opened a
                 # port.
-                model_loaded = bool(result.get("flm_config", {}).get("flm_model_loaded", False))
+                model_loaded = bool(result.get("flm_server", {}).get("flm_model_loaded", False))
 
                 # Has set_model() been called recently?  If so we trust the
                 # explicitly pushed model (it came from a daemon-confirmed
@@ -354,7 +356,7 @@ class ChatWidget(Container):
 
                 # Read chat config (temperature, max_tokens, system_prompt,
                 # request timeout) from the daemon snapshot.
-                chat_cfg = result.get("chat_config") or {}
+                chat_cfg = result.get("chat") or {}
                 self._temperature = float(chat_cfg.get("temperature") or self._temperature)
                 self._max_tokens = int(chat_cfg.get("max_tokens") or self._max_tokens)
                 sp = str(chat_cfg.get("system_prompt") or "").strip()
