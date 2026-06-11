@@ -279,12 +279,20 @@ class ChatPanel(Vertical):
         self._on_input_changed(event)
 
     def _on_input_changed(self, _event: Input.Changed) -> None:
-        """Validate current values and apply on any change/submit."""
-        self._last_user_change = time.monotonic()
+        """Validate current values and apply on user change/submit.
+
+        Only sets the stale guard when a *real* change is detected (input
+        differs from instance state). Programmatic calls from ``_sync_inputs``
+        (triggered by ``update_config``) always set inputs to match instance
+        values, so the ``if`` block is never entered and ``_last_user_change``
+        stays untouched — allowing the next periodic refresh to apply the
+        daemon snapshot.
+        """
         temp = self._clamp(self._read_temperature(), 0.0, 2.0)
         tokens = int(self._clamp(float(self._read_max_tokens()), 1.0, 32768.0))
         turns = int(self._clamp(float(self._read_context_turns()), 1.0, 100.0))
         if temp != self._temperature or tokens != self._max_tokens or turns != self._context_turns:
+            self._last_user_change = time.monotonic()
             self._temperature = temp
             self._max_tokens = tokens
             self._context_turns = turns

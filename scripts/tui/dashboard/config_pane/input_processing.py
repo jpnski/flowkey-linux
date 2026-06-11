@@ -124,11 +124,14 @@ class InputProcessingPanel(Vertical):
                     pass
 
     def update_input_processing(self, enabled: bool) -> None:
-        """Set the input-processing radio set to match the current config value."""
+        """Set the input-processing radio set to match the current config value.
+
+        ``RadioSet`` has no ``value`` property — set ``RadioButton.value`` instead.
+        """
         self._input_processing_enabled = enabled
         try:
-            radio_set = self.query_one("#input-processing-radio-set", RadioSet)
-            radio_set.value = "input-processing-enabled" if enabled else "input-processing-disabled"
+            target_id = "input-processing-enabled" if enabled else "input-processing-disabled"
+            self.query_one(f"#{target_id}", RadioButton).value = True
         except Exception:
             pass
 
@@ -274,7 +277,7 @@ class InputProcessingPanel(Vertical):
             )
             # Revert the radio selection.
             try:
-                radio_set = self.query_one("#input-processing-radio-set", RadioSet)
-                radio_set.value = "input-processing-enabled" if old_enabled else "input-processing-disabled"
+                target_id = "input-processing-enabled" if old_enabled else "input-processing-disabled"
+                self.query_one(f"#{target_id}", RadioButton).value = True
             except Exception:
                 pass

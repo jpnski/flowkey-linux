@@ -72,23 +72,28 @@ class FlmServerPanel(Vertical):
     # ---- Data ingestion (called by ConfigPane) ----
 
     def update_server_settings(self, auto_start: bool, power_mode: str, log_to_file: bool = True) -> None:
-        """Set all server radio sets from a config snapshot."""
+        """Set all server radio sets from a config snapshot.
+
+        ``RadioSet`` has no ``value`` property — the correct way to select
+        a button programmatically is ``RadioButton.value = True`` on the
+        target button (the RadioSet handles mutual exclusion).
+        """
         self._auto_start = auto_start
         self._power_mode = power_mode
         self._log_to_file = log_to_file
         try:
-            auto_radio = self.query_one("#auto-start-radio-set", RadioSet)
-            auto_radio.value = "auto-start-on" if auto_start else "auto-start-off"
+            target_id = "auto-start-on" if auto_start else "auto-start-off"
+            self.query_one(f"#{target_id}", RadioButton).value = True
         except Exception:
             pass
         try:
-            perf_radio = self.query_one("#power-radio-set", RadioSet)
-            perf_radio.value = power_mode if power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
+            pm = power_mode if power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
+            self.query_one(f"#{pm}", RadioButton).value = True
         except Exception:
             pass
         try:
-            log_radio = self.query_one("#logging-radio-set", RadioSet)
-            log_radio.value = "log-to-file-on" if log_to_file else "log-to-file-off"
+            target_id = "log-to-file-on" if log_to_file else "log-to-file-off"
+            self.query_one(f"#{target_id}", RadioButton).value = True
         except Exception:
             pass
 
@@ -142,6 +147,10 @@ class FlmServerPanel(Vertical):
 
         if "power_mode" in server_patch:
             self._power_mode = server_patch["power_mode"]
+        if "auto_start" in server_patch:
+            self._auto_start = server_patch["auto_start"]
+        if "log_to_file" in server_patch:
+            self._log_to_file = server_patch["log_to_file"]
 
         self.update_server_settings(self._auto_start, self._power_mode, self._log_to_file)
 
