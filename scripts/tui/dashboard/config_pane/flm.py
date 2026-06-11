@@ -24,6 +24,24 @@ from tui.dashboard._daemon import (
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _DEFAULT_TIMEOUT = 15.0
 
+# Category → best model tag for the Download-a-model dropdown.
+# When a model appears in _STARRED_TAGS, a ⭐ is shown next to it
+# so first-time users know which to try.  Maintainers: update the
+# value when a better model ships for a category.
+_STARRED_MODELS: dict[str, str] = {
+    "Multimodal":        "gemma4-it:e4b",
+    "General Chat":      "gemma3:4b",
+    "Reasoning":         "deepseek-r1-0528:8b",
+    "Vision":            "qwen3.5:9b",
+    "Tool Calling":      "qwen3-it:4b",
+    "Transcript Notes":  "lfm2-trans:2.6b",
+    "Translation":       "translategemma:4b",
+    "Medical":           "medgemma1.5:4b",
+    "Expert (MoE)":      "gpt-oss:20b",
+    "Audio (ASR)":       "whisper-v3:turbo",
+}
+_STARRED_TAGS: frozenset[str] = frozenset(_STARRED_MODELS.values())
+
 
 class FlmModelPanel(Vertical):
     """FLM Runtime and Model panel for the Config tab.
@@ -269,7 +287,11 @@ class FlmModelPanel(Vertical):
         else:
             if self._not_installed_models != self._last_dl_select_options:
                 options = [("(select a model)", "")] + [
-                    (name, name) for name in self._not_installed_models
+                    (
+                        f"{name} ⭐" if name in _STARRED_TAGS else name,
+                        name,
+                    )
+                    for name in self._not_installed_models
                 ]
                 self._last_dl_select_refresh_at = time.monotonic()
                 select.set_options(options)
