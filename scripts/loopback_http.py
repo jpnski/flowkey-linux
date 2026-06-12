@@ -12,6 +12,7 @@ log = logging.getLogger("flowkey.http")
 
 DAEMON_API_HEADER = "X-FFP-API"
 DAEMON_API_VERSION = "1"
+DAEMON_BASE_URL = "http://127.0.0.1:52650"
 
 
 def daemon_headers() -> dict[str, str]:
@@ -57,3 +58,16 @@ def json_post(
     except urllib.error.URLError as exc:
         log.warning("POST %s failed: %s", url, exc)
         raise
+
+
+def daemon_post(action: str, args: dict[str, Any] | None = None, *, timeout: float = 5.0) -> dict[str, Any]:
+    """POST to a daemon action endpoint and return the parsed JSON response."""
+    try:
+        return json_post(
+            f"{DAEMON_BASE_URL}/action/{action}",
+            {"args": args or {}},
+            headers=daemon_headers(),
+            timeout=timeout,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

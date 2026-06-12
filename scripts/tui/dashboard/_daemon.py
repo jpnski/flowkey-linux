@@ -7,7 +7,7 @@ import loopback_http
 
 log = logging.getLogger("flowkey.tui.dashboard")
 
-DAEMON_BASE_URL = "http://127.0.0.1:52650"
+DAEMON_BASE_URL = loopback_http.DAEMON_BASE_URL
 REFRESH_INTERVAL = 10.0  # seconds between auto-refresh
 
 # ---------------------------------------------------------------------------
@@ -19,18 +19,8 @@ _DAEMON_TIMEOUT_MODEL_CHANGE = 75.0  # Must accommodate: stop_flm (~3s) + start_
 _DAEMON_TIMEOUT_PULL_START = 25.0
 _DAEMON_TIMEOUT_PULL_CANCEL = 10.0
 
-
-def _daemon_post(action: str, args: dict | None = None, *, timeout: float = _DAEMON_TIMEOUT_DEFAULT) -> dict:
-    """POST to daemon action and return parsed response."""
-    try:
-        return loopback_http.json_post(
-            f"{DAEMON_BASE_URL}/action/{action}",
-            {"args": args or {}},
-            headers=loopback_http.daemon_headers(),
-            timeout=timeout,
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+# Re-export for backward compatibility — all dashboard panes import from here.
+_daemon_post = loopback_http.daemon_post
 
 
 def _resolve_result(resp: dict) -> Any:

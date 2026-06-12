@@ -15,11 +15,6 @@ from textual.widgets import TabbedContent, TabPane
 
 from tui.dashboard._daemon import REFRESH_INTERVAL
 from tui.dashboard._pane import Pane
-from tui.dashboard.benchmark import BenchmarkPane
-from tui.dashboard.config_pane import ConfigPane
-from tui.dashboard.history import HistoryPane
-from tui.dashboard.notes import NotesPane
-from tui.dashboard.telemetry import TelemetryPane
 
 log = logging.getLogger("flowkey.tui.dashboard")
 
@@ -97,6 +92,12 @@ class DashboardWidget(Vertical):
     """
 
     def compose(self) -> ComposeResult:
+        from tui.dashboard.benchmark import BenchmarkPane
+        from tui.dashboard.config_pane import ConfigPane
+        from tui.dashboard.history import HistoryPane
+        from tui.dashboard.notes import NotesPane
+        from tui.dashboard.telemetry import TelemetryPane
+
         with TabbedContent(id="dashboard-tabs"):
             with TabPane("Config", id="tab-config"):
                 yield ConfigPane()

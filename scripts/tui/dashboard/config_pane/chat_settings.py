@@ -11,6 +11,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import RadioButton, RadioSet, Static
 
+from tui.dashboard import DashboardWidget
 from tui.dashboard._daemon import _daemon_post
 
 log = logging.getLogger("flowkey.tui.dashboard")
@@ -172,7 +173,6 @@ class FlmServerPanel(Vertical):
         if resp.get("ok"):
             self.app.notify("Server setting updated", severity="information")
             try:
-                from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
             except Exception as exc:
                 log.warning("could not refresh dashboard after server update: %s", exc)

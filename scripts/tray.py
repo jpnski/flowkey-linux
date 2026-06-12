@@ -25,38 +25,8 @@ import loopback_http
 
 log = logging.getLogger("flowkey.tray")
 
-DAEMON_BASE_URL = "http://127.0.0.1:52650"
 HERE = Path(__file__).resolve().parent
 ICON_PATH = HERE / "assets" / "flowkey.png"
-
-# ---------------------------------------------------------------------------
-# Daemon communication
-# ---------------------------------------------------------------------------
-
-
-def _daemon_get(action: str) -> dict:
-    """GET-style action via empty POST (GET not supported for actions)."""
-    try:
-        return loopback_http.json_post(
-            f"{DAEMON_BASE_URL}/action/{action}",
-            {"args": {}},
-            headers=loopback_http.daemon_headers(),
-            timeout=3.0,
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
-
-
-def _daemon_post(action: str, args: dict | None = None) -> dict:
-    try:
-        return loopback_http.json_post(
-            f"{DAEMON_BASE_URL}/action/{action}",
-            {"args": args or {}},
-            headers=loopback_http.daemon_headers(),
-            timeout=5.0,
-        )
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
 
 
 # ---------------------------------------------------------------------------
@@ -75,39 +45,39 @@ def _run_x11() -> None:
         _launch_tui()
 
     def _server_status() -> None:
-        resp = _daemon_get("status")
+        resp = loopback_http.daemon_post("status")
         result = resp.get("result") or ""
         _notify("Server status", str(result)[:120] or "unknown")
 
     def _server_start() -> None:
-        resp = _daemon_post("start")
+        resp = loopback_http.daemon_post("start")
         _notify("Server", resp.get("result") or "started")
 
     def _server_stop() -> None:
-        resp = _daemon_post("stop")
+        resp = loopback_http.daemon_post("stop")
         _notify("Server", resp.get("result") or "stopped")
 
     def _server_warmup() -> None:
-        resp = _daemon_post("warmup")
+        resp = loopback_http.daemon_post("warmup")
         _notify("Server", resp.get("result") or "warming up")
 
     def _set_power_balanced() -> None:
-        resp = _daemon_post("set_power_balanced")
+        resp = loopback_http.daemon_post("set_power_balanced")
         _notify("Power Mode", resp.get("result") or "balanced")
         _update_menu()
 
     def _set_power_turbo() -> None:
-        resp = _daemon_post("set_power_turbo")
+        resp = loopback_http.daemon_post("set_power_turbo")
         _notify("Power Mode", resp.get("result") or "turbo")
         _update_menu()
 
     def _set_power_performance() -> None:
-        resp = _daemon_post("set_power_performance")
+        resp = loopback_http.daemon_post("set_power_performance")
         _notify("Power Mode", resp.get("result") or "performance")
         _update_menu()
 
     def _set_power_powersaver() -> None:
-        resp = _daemon_post("set_power_powersaver")
+        resp = loopback_http.daemon_post("set_power_powersaver")
         _notify("Power Mode", resp.get("result") or "powersaver")
         _update_menu()
 
@@ -120,13 +90,11 @@ def _run_x11() -> None:
 
     def _refresh_power_mode() -> str:
         nonlocal _power_mode
-        resp = _daemon_get("power_mode")
+        resp = loopback_http.daemon_post("power_mode")
         _power_mode = str(resp.get("result") or "balanced").strip().lower()
         return _power_mode
 
     _refresh_power_mode()
-
-        _refresh_power_mode()
 
     def _update_menu() -> None:
         _refresh_power_mode()
@@ -228,10 +196,9 @@ def _sni_register(bus, icon_data: bytes) -> None:
 def _notify(title: str, message: str) -> None:
     """Quick desktop notification via daemon or notify-send."""
     try:
-        loopback_http.json_post(
-            f"{DAEMON_BASE_URL}/action/notify",
-            {"args": {"title": title[:64], "message": message[:256]}},
-            headers=loopback_http.daemon_headers(),
+        loopback_http.daemon_post(
+            "notify",
+            {"title": title[:64], "message": message[:256]},
             timeout=2.0,
         )
     except Exception as exc:

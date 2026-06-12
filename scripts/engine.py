@@ -182,8 +182,8 @@ def _find_pids_on_port(port: int) -> list[int]:
     return flm_server.find_pids_on_port(port)
 
 
-def _warmup_request(model: str) -> None:
-    flm_server.warmup_request(model, FLM_TIMEOUT_SECONDS, _call_flm_api)
+def warmup_request(model: str | None = None) -> None:
+    flm_server.warmup_request(model or FLM_MODEL, FLM_TIMEOUT_SECONDS, _call_flm_api)
 
 
 def start_flm_server(force_restart: bool = False) -> str:
@@ -476,9 +476,23 @@ def _flm_list(filter_kind: str) -> dict:
     return flm_server.flm_list(filter_kind, FLM_MODEL)
 
 
-def list_flm_models() -> dict:
-    """Installed models on this FLM server (alias for filter=installed)."""
-    return _flm_list("installed")
+def list_flm_models(filter_kind: str = "installed") -> dict:
+    return _flm_list(filter_kind)
+
+
+def call_flm_simple(
+    system_prompt: str,
+    user_content: str,
+    *,
+    max_tokens: int = 400,
+    timeout_seconds: int | None = None,
+) -> tuple[str, str]:
+    """Low-level single chat completion using current model/config. Returns (text, model_used)."""
+    return _call_flm_api(
+        FLM_MODEL, system_prompt, user_content,
+        max_tokens=max_tokens,
+        timeout_seconds=timeout_seconds or FLM_TIMEOUT_SECONDS,
+    )
 
 
 def run_doctor() -> str:
@@ -619,7 +633,7 @@ def _do_server_start_and_warmup(model: str) -> None:
         log.warning("start_flm_server for %s failed: %s", model, exc)
         return
     try:
-        _warmup_request(model)
+        warmup_request(model)
     except Exception as exc:
         log.warning(
             "model %s started but warmup request failed (may still be loading): %s",
@@ -706,7 +720,7 @@ def handle_server_cli() -> bool:
             return True
         if action == "warmup":
             start_flm_server(force_restart=False)
-            _warmup_request(FLM_MODEL)
+            warmup_request()
             print("warmed_up")
             return True
         if action == "restart":
@@ -865,7 +879,7 @@ def handle_server_cli() -> bool:
         return True
     if cmd == "warmup":
         start_flm_server(force_restart=False)
-        _warmup_request(FLM_MODEL)
+        warmup_request()
         print("warmed_up")
         return True
     if cmd == "restart":

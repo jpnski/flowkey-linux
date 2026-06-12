@@ -179,7 +179,7 @@ def _act_start(_args: dict) -> str:
 
 def _act_warmup(_args: dict) -> str:
     engine.start_flm_server(force_restart=False)
-    engine._warmup_request(engine.FLM_MODEL)
+    engine.warmup_request()
     return "warmed_up"
 
 
@@ -268,11 +268,11 @@ def _act_models_list(_args: dict) -> dict:
 
 
 def _act_models_installed(_args: dict) -> dict:
-    return engine._flm_list("installed")
+    return engine.list_flm_models("installed")
 
 
 def _act_models_not_installed(_args: dict) -> dict:
-    return engine._flm_list("not-installed")
+    return engine.list_flm_models("not-installed")
 
 
 def _act_pull_model(args: dict) -> str:

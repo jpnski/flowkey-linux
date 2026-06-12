@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import daemon as _daemon
+import loopback_http
 import paths as _paths
 import pyperclip
 
@@ -36,8 +37,8 @@ import pyperclip
 CONFIG: dict = {}
 HOTKEY_BINDINGS: dict[str, str] = {}  # action_name -> human-readable hotkey (e.g. "ctrl+alt+g")
 FLM_TIMEOUT_SECONDS: int = 60
-DAEMON_BASE_URL: str = "http://127.0.0.1:52650"
-API_VERSION: str = "1"
+DAEMON_BASE_URL: str = loopback_http.DAEMON_BASE_URL
+API_VERSION: str = loopback_http.DAEMON_API_VERSION
 SESSION_TYPE: str = ""  # "x11", "wayland", or "" (detected at import time)
 
 # ---------------------------------------------------------------------------

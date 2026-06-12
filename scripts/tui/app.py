@@ -37,8 +37,6 @@ from tui.dashboard import DashboardWidget
 
 log = logging.getLogger("flowkey.tui.app")
 
-DAEMON_BASE_URL = "http://127.0.0.1:52650"
-
 # ---------------------------------------------------------------------------
 # CSS
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.widgets import Input, Static
 
+from tui.dashboard import DashboardWidget
 from tui.dashboard._daemon import _daemon_post
 
 log = logging.getLogger("flowkey.tui.dashboard")
@@ -258,7 +259,6 @@ class HotkeysPanel(Vertical):
                 severity="information",
             )
             try:
-                from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
             except Exception as exc:
                 log.warning("could not refresh dashboard after hotkey save: %s", exc)

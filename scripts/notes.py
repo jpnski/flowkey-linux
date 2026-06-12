@@ -301,9 +301,8 @@ def _llm_categorize(text: str, source_app: str, url: str,
         "Never add commentary, Markdown fences, or explanations."
     )
     try:
-        raw, _model = engine._call_flm_api(
-            engine.FLM_MODEL, system_prompt, user_content,
-            max_tokens=400, timeout_seconds=engine.FLM_TIMEOUT_SECONDS,
+        raw, _model = engine.call_flm_simple(
+            system_prompt, user_content, max_tokens=400,
         )
     except Exception as e:
         log.warning("categorize LLM call failed: %s", e)

@@ -28,9 +28,9 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.events import Click
 from textual.widgets import Markdown, Static, TextArea
 
-log = logging.getLogger("flowkey.tui.chat")
+from tui.dashboard.config_pane.flm import FlmModelPanel
 
-DAEMON_BASE_URL = "http://127.0.0.1:52650"
+log = logging.getLogger("flowkey.tui.chat")
 
 # ---------------------------------------------------------------------------
 # Constants & helpers
@@ -315,12 +315,7 @@ class ChatWidget(Container):
     def _refresh_config(self) -> None:
         """Pull live config from daemon."""
         try:
-            resp = loopback_http.json_post(
-                f"{DAEMON_BASE_URL}/action/config_snapshot",
-                {"args": {}},
-                headers=loopback_http.daemon_headers(),
-                timeout=2.0,
-            )
+            resp = loopback_http.daemon_post("config_snapshot", timeout=2.0)
             if resp.get("ok") and isinstance(resp.get("result"), dict):
                 result = resp["result"]
                 self._llm_base_url = str(result.get("flm_api", {}).get("url") or self._llm_base_url)
@@ -437,7 +432,6 @@ class ChatWidget(Container):
         # Block input while the FLM model is being restarted — the XRT
         # NPU context would be destroyed mid-inference, causing an error.
         try:
-            from tui.dashboard.config_pane.flm_panel import FlmModelPanel
             panel = self.app.query_one(FlmModelPanel)
             if panel.restarting:
                 self.app.notify(
@@ -558,7 +552,6 @@ class ChatWidget(Container):
         """Send a regular chat message to the LLM with streaming."""
         # Guard: don't send if FLM is restarting.
         try:
-            from tui.dashboard.config_pane.flm_panel import FlmModelPanel
             panel = self.app.query_one(FlmModelPanel)
             if panel.restarting:
                 self.app.notify(
@@ -591,12 +584,7 @@ class ChatWidget(Container):
         """Stream LLM response via OpenAI-compatible SSE endpoint."""
         # Ensure the FLM server is running before attempting the chat request.
         try:
-            resp = loopback_http.json_post(
-                f"{DAEMON_BASE_URL}/action/start",
-                {"args": {}},
-                headers=loopback_http.daemon_headers(),
-                timeout=30.0,
-            )
+            resp = loopback_http.daemon_post("start", timeout=30.0)
             if not resp.get("ok"):
                 raise RuntimeError(str(resp.get("error") or "start failed"))
             # Server started — schedule an immediate config refresh so the

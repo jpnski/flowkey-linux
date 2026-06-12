@@ -268,11 +268,11 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [x] **53.** Replace dict-as-config with typed dataclasses — defined `FlowkeyConfig`, `FlmApiConfig`, `FlmServerConfig`, `ChatConfig`, `NotesConfig`, `HotkeysConfig`, `HistoryConfig`, `InputProcessingConfig`, `UpdateConfig`, `StandardModeConfig`, `ToneModeConfig`, `ModeTonePresetsConfig`, `MaxTokens` in `config.py`. Replaced `DEFAULT_CONFIG` dict with `FlowkeyConfig()` default. Updated `load_config()`/`save_config()` signatures and all ~40 call sites across `engine.py`, `daemon.py`, `listener.py`, `notes.py`, `tui/app.py`. Updated tests for typed access. (14 pre-existing failures unchanged)
 
-- [ ] **54.** Consolidate `DAEMON_BASE_URL` (5 copies across `app.py`, `chat.py`, `tray.py`, `_daemon.py`, `listener.py`) and `_daemon_post` (3 implementations in `tray.py`, `_daemon.py`, `listener.py`) into a single shared module.
+- [x] **54.** Consolidate `DAEMON_BASE_URL` (5 copies across `app.py`, `chat.py`, `tray.py`, `_daemon.py`, `listener.py`) and `_daemon_post` (3 implementations in `tray.py`, `_daemon.py`, `listener.py`) into a single shared module.
 
-- [ ] **55.** Fix module boundary violations — `daemon.py` calls `grammar_fix._warmup_request()` and `grammar_fix._flm_list()` (both private API, lines 184/271/275). `notes.py` calls `grammar_fix._call_flm_api()`, reads `grammar_fix.FLM_MODEL` and `grammar_fix.FLM_TIMEOUT_SECONDS` (lines 304-306). Either promote these to public API or route through existing public wrappers.
+- [x] **55.** Fix module boundary violations — `daemon.py` calls `grammar_fix._warmup_request()` and `grammar_fix._flm_list()` (both private API, lines 184/271/275). `notes.py` calls `grammar_fix._call_flm_api()`, reads `grammar_fix.FLM_MODEL` and `grammar_fix.FLM_TIMEOUT_SECONDS` (lines 304-306). Either promote these to public API or route through existing public wrappers.
 
-- [ ] **56.** Eliminate local-import circular-dependency hacks — 9+ occurrences of `from tui.dashboard import DashboardWidget` and `from tui.chat import ChatWidget` inside function bodies across dashboard config_pane files. Restructure module dependency graph or add an event bus / signals layer.
+- [x] **56.** Eliminate local-import circular-dependency hacks — 9+ occurrences of `from tui.dashboard import DashboardWidget` and `from tui.chat import ChatWidget` inside function bodies across dashboard config_pane files. Restructure module dependency graph or add an event bus / signals layer.
 
 ### God Function & God Object Decomposition
 

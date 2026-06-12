@@ -15,6 +15,8 @@ from textual.events import Click
 from textual.reactive import reactive
 from textual.widgets import Select, Static
 
+from tui.chat import ChatWidget
+from tui.dashboard import DashboardWidget
 from tui.dashboard._daemon import (
     _DAEMON_TIMEOUT_MODEL_CHANGE,
     _DAEMON_TIMEOUT_PULL_CANCEL,
@@ -403,7 +405,6 @@ class FlmModelPanel(Vertical):
     def _refresh_dashboard(self) -> None:
         """Trigger a full dashboard refresh so model lists are re-fetched."""
         try:
-            from tui.dashboard import DashboardWidget
             self.app.query_one(DashboardWidget).refresh_now()
         except Exception as exc:
             log.warning("could not refresh dashboard: %s", exc)
@@ -427,7 +428,6 @@ class FlmModelPanel(Vertical):
             # Chat-stream guard (applies to both unloading and switching).
             is_streaming = False
             try:
-                from tui.chat import ChatWidget  # local import to avoid cycles
                 chat = self.app.query_one(ChatWidget)
                 if chat.is_streaming():
                     is_streaming = True
@@ -514,7 +514,6 @@ class FlmModelPanel(Vertical):
             # before refresh_now() which blocks the event loop for seconds
             # making 11 synchronous HTTP requests while FLM restarts.
             try:
-                from tui.chat import ChatWidget
                 chat = self.app.query_one(ChatWidget)
                 chat.set_model(new_value)
             except Exception as exc:
@@ -522,7 +521,6 @@ class FlmModelPanel(Vertical):
             # Refresh the parent's view of the active model and the installed
             # list.  This makes multiple HTTP requests and may take seconds.
             try:
-                from tui.dashboard import DashboardWidget  # local import to avoid cycles
                 self.app.query_one(DashboardWidget).refresh_now()
             except Exception as exc:
                 log.warning("could not refresh dashboard after model change: %s", exc)
@@ -582,7 +580,6 @@ class FlmModelPanel(Vertical):
         self._model_loaded = False
         self._active_model = ""
         try:
-            from tui.chat import ChatWidget
             chat = self.app.query_one(ChatWidget)
             chat.set_model("")
         except Exception as exc:
