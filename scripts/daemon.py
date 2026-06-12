@@ -30,7 +30,7 @@ import traceback
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import config
 import engine
@@ -662,9 +662,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         raw_body = self.rfile.read(length) if length > 0 else b""
         try:
-            if raw_body.startswith(b"\xef\xbb\xbf"):  # UTF-8 BOM
-                raw_body = raw_body[3:]
-            payload = json.loads(raw_body.decode("utf-8"), strict=False) if raw_body else {}
+            payload = json.loads(raw_body.decode("utf-8-sig"), strict=False) if raw_body else {}
         except UnicodeDecodeError as e:
             log.warning("action=%s utf8_decode_failed bytes=%r", action_name, raw_body[:80])
             self._send_json(400, _err(f"body not UTF-8: {e}", 0.0))
@@ -772,17 +770,18 @@ def main() -> int:
         threading.Thread(target=_watch_parent, args=(args.parent_pid,), daemon=True).start()
 
     server = ThreadingHTTPServer((HOST, args.port), Handler)
-    server.timeout = 1.0
 
     log.info("Flowkey daemon listening on http://%s:%d (version %s)",
              HOST, args.port, engine.APP_VERSION)
 
     try:
-        while not _shutdown_event.is_set():
-            server.handle_request()
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        _shutdown_event.wait()
     except KeyboardInterrupt:
         log.info("KeyboardInterrupt; shutting down")
     finally:
+        server.shutdown()
         server.server_close()
         log.info("daemon stopped (uptime %.1fs)", time.time() - _started_at)
     return 0

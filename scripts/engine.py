@@ -14,15 +14,15 @@ import subprocess
 import sys
 import time
 import urllib.request
+from dataclasses import asdict
 from pathlib import Path
 
+import config
 import flm_server
 import llm_client
 import paths as _paths
 import telemetry
 import updater
-
-import config
 
 _is_selectable_chat_model = flm_server._is_selectable_chat_model
 
@@ -551,10 +551,6 @@ def apply_update() -> str:
     return updater.apply_update(APP_VERSION, TOOL_DIR, feed_url=feed_url)
 
 
-def _deep_merge(dst: dict, src: dict) -> None:
-    config.deep_merge(dst, src)
-
-
 def apply_config_patch(patch: dict) -> str:
     """Merge a whitelisted config patch, validate model changes, refresh runtime."""
     filtered = config.filter_config_patch(patch)
@@ -564,7 +560,10 @@ def apply_config_patch(patch: dict) -> str:
     old_model = FLM_MODEL
     old_log_to_file = SERVER_LOG_TO_FILE
     cfg = load_config()
-    _deep_merge(cfg, filtered)
+    # deep_merge operates on dicts; convert dataclass → dict → merge → reconstruct
+    cfg_dict = asdict(cfg)
+    config.deep_merge(cfg_dict, filtered)
+    cfg = config.FlowkeyConfig.from_dict(cfg_dict)
 
     flm_patch = filtered.get("flm_server") if isinstance(filtered.get("flm_server"), dict) else None
     new_model = None

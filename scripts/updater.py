@@ -12,6 +12,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from packaging.version import Version
+
 log = logging.getLogger("flowkey.updater")
 
 UPDATE_FEED_URL_DEFAULT = os.environ.get("FFP_UPDATE_FEED_URL", "")
@@ -28,14 +30,8 @@ def _safe_extract_zip(archive: zipfile.ZipFile, target_dir: Path) -> None:
     archive.extractall(target_dir)
 
 
-def version_tuple(version: str) -> tuple[int, ...]:
-    parts: list[int] = []
-    for piece in str(version).split("."):
-        digits = "".join(ch for ch in piece if ch.isdigit())
-        parts.append(int(digits) if digits else 0)
-    while len(parts) < 3:
-        parts.append(0)
-    return tuple(parts)
+def version_tuple(version: str) -> Version:
+    return Version(version)
 
 
 def check_for_update(app_version: str, feed_url: str | None = None) -> dict:

@@ -25,7 +25,10 @@ def test_load_config_merges_nested_sections(fresh_modules):
                 "flm_server": {"model": "custom:model", "auto_start": False},
                 "input_processing": {"chunk_size": 900},
                 "grammar_ignore_words": ["Flowkey"],
-                "modes": {"grammar": {"shortcut": "Ctrl+Alt+G", "label": "Grammar fix", "description": "", "system_prompt": "", "max_tokens": {"short": 160, "medium": 220, "long": 280}}},
+                "modes": {
+                    "grammar": {"shortcut": "Ctrl+Alt+G", "label": "Grammar fix", "description": "", "system_prompt": "", "max_tokens": {"short": 160, "medium": 220, "long": 280}},
+                    "prompt": {"shortcut": "Ctrl+Shift+P", "label": "Prompt fix", "description": "", "system_prompt": "test prompt", "max_tokens": {"short": 300, "medium": 500, "long": 700}},
+                },
             }
         ),
         encoding="utf-8",
@@ -39,7 +42,7 @@ def test_load_config_merges_nested_sections(fresh_modules):
     assert cfg.input_processing.chunk_size == 900
     assert cfg.grammar_ignore_words == ["Flowkey"]
     assert cfg.modes["grammar"].shortcut == "Ctrl+Alt+G"
-    assert "prompt" in cfg.modes
+    assert cfg.modes["prompt"].shortcut == "Ctrl+Shift+P"
 
 
 def test_save_config_writes_utf8_json_with_newline(fresh_modules):
@@ -135,7 +138,7 @@ def test_resolve_token_budget_picks_expected_strategy(fresh_modules, mode, text,
     assert selected == strategy
 
 
-def test_dict_protect_returns_original_when_no_words(fresh_modules):
+def test_dict_protect_returns_original_when_no_words(fresh_modules, monkeypatch):
     engine = fresh_modules("engine")
     engine.GRAMMAR_IGNORE_WORDS = []
     engine.GRAMMAR_IGNORE_WORDS = ["Flowkey", "LLM"]
@@ -254,16 +257,16 @@ def test_apply_config_patch_updates_flm_model_and_runtime(fresh_modules, monkeyp
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
-    monkeypatch.setattr(engine, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(engine, "warmup_request", lambda model: None)
     monkeypatch.setattr(engine, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(engine, "start_flm_server", lambda force_restart=False: "started")
 
-    result = engine.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
+    result = engine.apply_config_patch({"flm_server": {"model": "other:1b"}})
 
     assert result == "model=other:1b restarted"
     assert engine.FLM_MODEL == "other:1b"
     saved = json.loads(engine.CONFIG_PATH.read_text(encoding="utf-8"))
-    assert saved["flm_config"]["active_model"] == "other:1b"
+    assert saved["flm_server"]["model"] == "other:1b"
 
 
 def test_apply_config_patch_rejects_uninstalled_model(fresh_modules, monkeypatch):
@@ -275,28 +278,24 @@ def test_apply_config_patch_rejects_uninstalled_model(fresh_modules, monkeypatch
     )
 
     with pytest.raises(RuntimeError, match="not installed"):
-        engine.apply_config_patch({"flm_config": {"active_model": "missing:7b"}})
+        engine.apply_config_patch({"flm_server": {"model": "missing:7b"}})
 
 
 def test_apply_config_patch_syncs_chat_llm_model(fresh_modules, monkeypatch):
     engine = fresh_modules("engine")
-    cfg = engine.load_config()
-    cfg["chat_config"] = {"llm_model": "stale:old"}
-    engine.save_config(cfg)
     monkeypatch.setattr(
         engine,
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
-    monkeypatch.setattr(engine, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(engine, "warmup_request", lambda model: None)
     monkeypatch.setattr(engine, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(engine, "start_flm_server", lambda force_restart=False: "started")
 
-    engine.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
+    engine.apply_config_patch({"flm_server": {"model": "other:1b"}})
 
     saved = json.loads(engine.CONFIG_PATH.read_text(encoding="utf-8"))
-    assert saved["flm_config"]["active_model"] == "other:1b"
-    assert "llm_model" not in (saved.get("chat_config") or {})
+    assert saved["flm_server"]["model"] == "other:1b"
 
 
 def test_apply_config_patch_restarts_flm_server_on_model_change(fresh_modules, monkeypatch):
@@ -316,10 +315,11 @@ def test_apply_config_patch_restarts_flm_server_on_model_change(fresh_modules, m
         call_log.append(("start", force_restart))
         return "started"
 
+    monkeypatch.setattr(engine, "warmup_request", lambda model: None)
     monkeypatch.setattr(engine, "stop_flm_server", fake_stop)
     monkeypatch.setattr(engine, "start_flm_server", fake_start)
 
-    result = engine.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
+    result = engine.apply_config_patch({"flm_server": {"model": "other:1b"}})
 
     assert result == "model=other:1b restarted"
     assert [name for name, _ in call_log] == ["stop", "start"]
@@ -335,6 +335,7 @@ def test_apply_config_patch_start_failure_is_non_fatal(fresh_modules, monkeypatc
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
+    monkeypatch.setattr(engine, "warmup_request", lambda model: None)
     monkeypatch.setattr(engine, "stop_flm_server", lambda force=True: True)
 
     def start_raises(**kwargs):
@@ -343,7 +344,7 @@ def test_apply_config_patch_start_failure_is_non_fatal(fresh_modules, monkeypatc
     monkeypatch.setattr(engine, "start_flm_server", start_raises)
 
     caplog.set_level("WARNING", logger="flowkey.engine")
-    result = engine.apply_config_patch({"flm_config": {"active_model": "other:1b"}})
+    result = engine.apply_config_patch({"flm_server": {"model": "other:1b"}})
 
     assert result == "model=other:1b restarted"
     assert engine.FLM_MODEL == "other:1b"
@@ -370,7 +371,7 @@ def test_apply_config_patch_does_not_restart_when_model_unchanged(fresh_modules,
     monkeypatch.setattr(engine, "stop_flm_server", fake_stop)
     monkeypatch.setattr(engine, "start_flm_server", fake_start)
 
-    result = engine.apply_config_patch({"flm_serving_config": {"auto_start": False}})
+    result = engine.apply_config_patch({"flm_server": {"auto_start": False}})
 
     assert result == "ok"
     assert restart_called == {"stop": 0, "start": 0}
@@ -387,15 +388,16 @@ def test_apply_config_patch_rejects_embedding_model(fresh_modules, monkeypatch):
         return {"models": ["qwen3.5:4b", "embed-gemma:300m"], "active": "qwen3.5:4b"}
 
     monkeypatch.setattr(engine, "list_flm_models", fake_list)
+    monkeypatch.setattr(engine, "warmup_request", lambda model: None)
     monkeypatch.setattr(engine, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(engine, "start_flm_server", lambda force_restart=False: "started")
 
     with pytest.raises(RuntimeError, match="not a chat-selectable model"):
-        engine.apply_config_patch({"flm_config": {"active_model": "embed-gemma:300m"}})
+        engine.apply_config_patch({"flm_server": {"model": "embed-gemma:300m"}})
 
     # The file on disk is untouched (no half-write).
     on_disk = json.loads(engine.CONFIG_PATH.read_text(encoding="utf-8"))
-    assert on_disk.get("flm_config", {}).get("active_model") != "embed-gemma:300m"
+    assert on_disk.get("flm_server", {}).get("model") != "embed-gemma:300m"
 
 
 def test_apply_config_patch_rejects_asr_only_model(fresh_modules, monkeypatch):
@@ -405,9 +407,10 @@ def test_apply_config_patch_rejects_asr_only_model(fresh_modules, monkeypatch):
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b", "whisper-v3:turbo"], "active": "qwen3.5:4b"},
     )
+    monkeypatch.setattr(engine, "warmup_request", lambda model: None)
 
     with pytest.raises(RuntimeError, match="not a chat-selectable model"):
-        engine.apply_config_patch({"flm_config": {"active_model": "whisper-v3:turbo"}})
+        engine.apply_config_patch({"flm_server": {"model": "whisper-v3:turbo"}})
 
 
 def test_refresh_runtime_config_falls_back_when_model_is_non_chat(
@@ -415,7 +418,7 @@ def test_refresh_runtime_config_falls_back_when_model_is_non_chat(
 ):
     engine = fresh_modules("engine")
     engine.CONFIG_PATH.write_text(
-        json.dumps({"flm_config": {"active_model": "embed-gemma:300m"}}),
+        json.dumps({"flm_server": {"model": "embed-gemma:300m"}}),
         encoding="utf-8",
     )
 

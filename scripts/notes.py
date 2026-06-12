@@ -39,6 +39,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
+import config
 import engine
 
 log = logging.getLogger("flowkey.notes")

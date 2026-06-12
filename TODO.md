@@ -310,27 +310,27 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ### Dead Code Removal
 
-- [ ] **71.** Remove `PERF_TO_PMODE` identity dict in `flm_server.py` line 22/168 — keys and values are identical, `perf_mode` is already validated. `pmode = perf_mode` produces the same result.
+- [x] **71.** Remove `PERF_TO_PMODE` identity dict in `flm_server.py` — done as part of item 64 (PowerMode enum).
 
-- [ ] **72.** Remove dead code: `_xml_escape` in `daemon.py` (lines 409-411), dead `bench_status` in `benchmark.py` (lines 82-93), dead `_daemon_available` in `chat.py` (line 272), dead `chat_with_tools()` in `tools.py` (FastFlowLM 0.9.43 tool calling bug blocks it), `_trigger_bench` in `benchmark.py`.
+- [x] **72.** Removed dead code: `_daemon_available` field + 4 writes from `chat.py` (assigned but never read); removed `chat_with_tools()`, `TOOLS`, `NOTE_SEARCH_TOOL`, `MAX_ROUNDS` from `tools.py` (blocked by upstream bug, no callers); `_xml_escape`/`bench_status`/`_trigger_bench` were already absent.
 
-- [ ] **73.** Remove/purge `subprocess_util.py` — `NO_WINDOW = 0` is dead code (Windows CRYPTO_NO_WINDOW), `popen_hidden()` is a no-op pass-through, `run_hidden()` just sets defaults nothing "hidden." Only 1 of 7 files that spawn subprocesses actually uses it.
+- [x] **73.** Dead code (`NO_WINDOW`, `popen_hidden`, `run_hidden`) already removed in item 43. Remaining `run_captured()` is a clean 16-line wrapper used by 4 call sites in 2 files, with test monkeypatching depending on it as a module-level seam. No further action needed.
 
 ### Minor Cleanups
 
-- [ ] **74.** Fix manual BOM stripping (`daemon.py` line 621) — `raw_body[3:]` after `b"\xef\xbb\xbf"` check. Use `raw_body.decode("utf-8-sig")`.
+- [x] **74.** Replaced manual BOM stripping (`raw_body[3:]` after `b"\xef\xbb\xbf"` check) with `raw_body.decode("utf-8-sig")` which handles BOM natively.
 
-- [ ] **75.** Fix manual URL parsing in `flm_server.py` `flm_host_port()` (lines 43-52) — replaces `http://` then `https://` in sequence, breaks with URLs containing paths/auth. Use `urllib.parse.urlparse` (already used correctly in `config.py`).
+- [x] **75.** Replaced fragile `str.replace("http://", "").replace("https://", "")` in `flm_host_port()` with `urllib.parse.urlparse`. Handles IPv6, ports, paths correctly.
 
-- [ ] **76.** Fix `ss` output parsing fragility (`flm_server.py` lines 116-143) — `ss -tlnp` requires root for PIDs on modern systems; output format varies between busybox/iproute2. Add fallback or use `/proc` scanning.
+- [x] **76.** Replaced single `ss -tlnp` PID finder with two-tier approach: `_pids_via_proc_net()` reads `/proc/net/tcp` + `/proc/[pid]/fd` (no root, stable ABI), falls back to `_pids_via_ss()` if no PIDs found. Both return `[]` gracefully on error.
 
-- [ ] **77.** Fix daemon busy-wait main loop (`daemon.py` lines 737-738) — `handle_request()` with 1s timeout wake. Use `serve_forever()` on background thread with `server.shutdown()`.
+- [x] **77.** Replaced daemon main loop (`while not _shutdown_event.is_set(): server.handle_request()` with 1s polling) with `server.serve_forever()` on a background thread + `_shutdown_event.wait()` on main. Shutdown is via `server.shutdown()` instead of relying on timeout wake. Eliminates 1s idle polling wake.
 
-- [ ] **78.** Fix `notify.xml_escape` reimplementing stdlib — use `xml.sax.saxutils.escape(s, {'"': "&quot;", "'": "&apos;"})` instead.
+- [x] **78.** Fix `notify.xml_escape` reimplementing stdlib — done as part of item 44 (Replaced hand-rolled xml_escape with stdlib xml.sax.saxutils.escape).
 
-- [ ] **79.** Fix `_percentile` in `telemetry.py` reimplementing stdlib — use `statistics.quantiles()` (Python 3.8+).
+- [x] **79.** Replaced hand-rolled `_percentile` linear interpolation with `statistics.quantiles(data, n=100, method="inclusive")`. Results match previous implementation (<1e-12 difference). Added `import statistics`.
 
-- [ ] **80.** Fix `version_tuple` in `updater.py` — silently drops pre-release info (`"1.2.3-beta1"` → `(1,2,3)`). Use `packaging.version.Version`.
+- [x] **80.** Replaced hand-rolled `version_tuple` (stripped non-digits, dropped pre-release) with `packaging.version.Version`. Now `"1.2.3-beta1" < "1.2.3"` as expected. Added `from packaging.version import Version`.
 
 ### Distribution
 

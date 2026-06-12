@@ -44,7 +44,6 @@ def _daemon_action(action: str, notify_label: str, *, update_menu: bool = False)
         _power_mode = str(resp2.get("result") or PowerMode.BALANCED.value).strip().lower()
         icon = _x11_icon
         if icon is not None:
-            import pystray as _ps  # noqa: F811
             icon.menu = _build_x11_menu()  # type: ignore[union-attr]
             icon.update_menu()  # type: ignore[union-attr]
 

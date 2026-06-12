@@ -14,10 +14,10 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-
-from subprocess_util import run_captured
+from urllib.parse import urlparse
 
 import config
+from subprocess_util import run_captured
 
 log = logging.getLogger("flowkey.flmserver")
 
@@ -41,15 +41,10 @@ class FlmServerSettings:
 
 
 def flm_host_port(base_url: str) -> tuple[str, int]:
-    base = base_url.replace("http://", "").replace("https://", "")
-    host_port = base.split("/", 1)[0]
-    if ":" in host_port:
-        host, port_text = host_port.rsplit(":", 1)
-        try:
-            return host, int(port_text)
-        except ValueError:
-            return host, 52625
-    return host_port, 52625
+    parsed = urlparse(base_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 52625
+    return host, port
 
 
 def is_flm_server_reachable(base_url: str) -> bool:
@@ -113,18 +108,70 @@ def kill_pid(pid: int) -> bool:
         return False
 
 
-def find_pids_on_port(port: int) -> list[int]:
-    """Find PIDs listening on a TCP port via `ss -tlnp`.
+def _pids_via_proc_net(port: int) -> list[int]:
+    """Find PIDs listening on *port* by reading /proc/net/tcp + /proc/[pid]/fd.
 
-    Returns sorted list of unique PIDs. On error returns [].
+    No root required — reads world-readable /proc entries.
     """
+    hex_port = f":{port:04x}"
+    # Collect socket inode numbers whose local address matches the port.
+    sock_inodes: set[int] = set()
+    for net_file in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            text = Path(net_file).read_text(encoding="ascii", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            # Format: sl  local_address  rem_address  st  ...
+            # local_address is HEX_IP:HEX_PORT
+            parts = line.strip().split()
+            if len(parts) < 10:
+                continue
+            local = parts[1]  # e.g. "00000000:1F90"
+            if local.endswith(hex_port):
+                try:
+                    sock_inodes.add(int(parts[9]))
+                except (IndexError, ValueError):
+                    continue
+
+    if not sock_inodes:
+        return []
+
+    # Scan /proc/[pid]/fd for matching socket inodes.
+    pids: set[int] = set()
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            pid = int(proc.name)
+        except ValueError:
+            continue
+        fd_dir = proc / "fd"
+        try:
+            for fd_entry in fd_dir.iterdir():
+                try:
+                    link = os.readlink(str(fd_entry))
+                except OSError:
+                    continue
+                # Socket links look like "socket:[12345]"
+                if link.startswith("socket:["):
+                    try:
+                        ino = int(link[8:-1])
+                    except ValueError:
+                        continue
+                    if ino in sock_inodes:
+                        pids.add(pid)
+        except PermissionError:
+            continue
+    return sorted(pids)
+
+
+def _pids_via_ss(port: int) -> list[int]:
+    """Find PIDs via `ss -tlnp`. Requires CAP_NET_ADMIN for PID display."""
     try:
         result = run_captured(["ss", "-tlnp"], timeout=5)
     except FileNotFoundError:
-        log.warning("ss not found; cannot scan for port %d", port)
         return []
     except Exception as exc:
-        log.debug("ss failed on port %d: %s", port, exc)
+        log.debug("ss failed: %s", exc)
         return []
 
     pids: set[int] = set()
@@ -132,15 +179,24 @@ def find_pids_on_port(port: int) -> list[int]:
     for line in (result.stdout or "").splitlines():
         if needle not in line:
             continue
-        # ss -tlnp output: State Recv-Q Send-Q Local Address:Port ...
-        # The last column is `users:(("process",pid,fd),...)`
-        # Extract all pid=NNN occurrences.
         for m in re.finditer(r"pid=(\d+)", line):
             try:
                 pids.add(int(m.group(1)))
             except ValueError:
                 continue
     return sorted(pids)
+
+
+def find_pids_on_port(port: int) -> list[int]:
+    """Find PIDs listening on a TCP port.
+
+    Tries /proc/net/tcp first (no root, stable ABI), then falls back to
+    ``ss -tlnp``. Returns sorted unique PIDs, or [] on error.
+    """
+    pids = _pids_via_proc_net(port)
+    if not pids:
+        pids = _pids_via_ss(port)
+    return pids
 
 
 def warmup_request(

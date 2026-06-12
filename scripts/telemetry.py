@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import statistics
 from pathlib import Path
 
 log = logging.getLogger("flowkey.telemetry")
@@ -21,12 +22,13 @@ def append_history(history_path: Path, entry: dict) -> None:
 def _percentile(values: list[float], pct: float) -> float:
     if not values:
         return 0.0
-    sorted_vals = sorted(values)
-    k = (len(sorted_vals) - 1) * (pct / 100.0)
-    lo = int(k)
-    hi = min(lo + 1, len(sorted_vals) - 1)
-    frac = k - lo
-    return round(sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * frac, 3)
+    q = statistics.quantiles(values, n=100, method="inclusive")
+    idx = int(pct) - 1
+    if idx < 0:
+        return round(q[0], 3)
+    if idx >= len(q):
+        return round(q[-1], 3)
+    return round(q[idx], 3)
 
 
 def read_history(path: Path) -> list[dict]:

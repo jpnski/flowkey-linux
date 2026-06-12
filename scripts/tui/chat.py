@@ -318,7 +318,6 @@ class ChatWidget(Container):
         self._current_bubble: MessageBubble | None = None
         self._llm_base_url = "http://127.0.0.1:52625"
         self._llm_model = "gemma4-it:e4b"
-        self._daemon_available = False
         # Timestamp of the last set_model() call.  _refresh_config uses this
         # to avoid overwriting _llm_model with stale data from the daemon
         # before its config_snapshot has converged after a model change.
@@ -408,12 +407,10 @@ class ChatWidget(Container):
                 self._request_timeout = int(chat_cfg.get("request_timeout_s") or self._request_timeout)
                 self._context_window_turns = int(chat_cfg.get("context_window_turns") or self._context_window_turns)
 
-                self._daemon_available = True
                 self._update_status(f"Model: {model_display}  |  Daemon: connected")
                 return
         except Exception as exc:
             log.warning("daemon config poll failed: %s", exc)
-        self._daemon_available = False
         self._update_status("Daemon: not connected — config may be stale")
 
     def set_model(self, model_name: str) -> None:
@@ -426,7 +423,6 @@ class ChatWidget(Container):
         """
         self._llm_model = model_name
         self._model_set_at = time.monotonic()
-        self._daemon_available = True
         self._update_status(
             f"Model: {model_name if model_name else '(none)'}  |  Daemon: connected"
         )

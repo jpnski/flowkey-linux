@@ -165,12 +165,12 @@ def test_post_config_snapshot_returns_flat_dashboard_fields(daemon_server):
     assert status == 200
     assert set(payload["result"]) >= {
         "version",
-        "flm_config",
-        "flm_serving_config",
-        "history_config",
+        "flm_api",
+        "flm_server",
+        "history",
         "input_processing",
         "notes",
-        "tone",
+        "chat",
         "hotkeys",
     }
     notes = payload["result"]["notes"]
@@ -179,14 +179,14 @@ def test_post_config_snapshot_returns_flat_dashboard_fields(daemon_server):
 
 def test_apply_config_patch_persists_nested_value(daemon_server):
     daemon_module, base_url = daemon_server
-    body = json.dumps({"args": {"patch": {"flm_serving_config": {"auto_start": False}}}}).encode("utf-8")
+    body = json.dumps({"args": {"patch": {"flm_server": {"auto_start": False}}}}).encode("utf-8")
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
     saved = json.loads(daemon_module.engine.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
     assert payload["result"] == "ok"
-    assert saved["flm_serving_config"]["auto_start"] is False
+    assert saved["flm_server"]["auto_start"] is False
 
 
 def test_apply_config_patch_model_change_validates_and_persists(daemon_server, monkeypatch):
@@ -196,17 +196,17 @@ def test_apply_config_patch_model_change_validates_and_persists(daemon_server, m
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
-    monkeypatch.setattr(daemon_module.engine, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(daemon_module.engine, "warmup_request", lambda model: None)
     monkeypatch.setattr(daemon_module.engine, "stop_flm_server", lambda force=True: True)
     monkeypatch.setattr(daemon_module.engine, "start_flm_server", lambda force_restart=False: "started")
-    body = json.dumps({"args": {"patch": {"flm_config": {"active_model": "other:1b"}}}}).encode("utf-8")
+    body = json.dumps({"args": {"patch": {"flm_server": {"model": "other:1b"}}}}).encode("utf-8")
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
     saved = json.loads(daemon_module.engine.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
     assert payload["result"] == "model=other:1b restarted"
-    assert saved["flm_config"]["active_model"] == "other:1b"
+    assert saved["flm_server"]["model"] == "other:1b"
     assert daemon_module.engine.FLM_MODEL == "other:1b"
 
 

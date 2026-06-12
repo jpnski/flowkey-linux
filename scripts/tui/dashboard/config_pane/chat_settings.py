@@ -7,13 +7,13 @@ import logging
 from functools import partial
 from typing import Any
 
+from config import PowerMode
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import RadioButton, RadioSet, Static
 
 from tui.dashboard import DashboardWidget
 from tui.dashboard._daemon import _daemon_post
-from config import PowerMode
 
 log = logging.getLogger("flowkey.tui.dashboard")
 

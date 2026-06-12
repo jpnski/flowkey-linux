@@ -24,9 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-import paths as _paths
-
 import config
+import paths as _paths
 
 HERE = Path(__file__).resolve().parent
 

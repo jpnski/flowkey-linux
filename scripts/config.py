@@ -8,8 +8,8 @@ import os
 import tempfile
 import threading
 from copy import copy as _copy
-from dataclasses import dataclass, field, asdict, MISSING
-from enum import Enum
+from dataclasses import MISSING, asdict, dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -36,13 +36,13 @@ def _field_default(cls: type, name: str):
     """Read the default value from a dataclass field, handling default_factory."""
     f = cls.__dataclass_fields__[name]
     if f.default is not MISSING:
-        return copy(f.default)
+        return _copy(f.default)
     return f.default_factory()
 
 
 # ── Typed config dataclasses ────────────────────────────────────────────────
 
-class PowerMode(str, Enum):
+class PowerMode(StrEnum):
     """Power/performance mode for the FLM server."""
     POWERSAVER = "powersaver"
     BALANCED = "balanced"

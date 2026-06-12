@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from config import PowerMode
 from textual.app import ComposeResult
 from textual.containers import Vertical
 
@@ -10,10 +11,8 @@ from tui.dashboard._pane import Pane
 from tui.dashboard.config_pane.chat_panel import ChatPanel
 from tui.dashboard.config_pane.chat_settings import FlmServerPanel
 from tui.dashboard.config_pane.flm import FlmModelPanel
-from config import PowerMode
 from tui.dashboard.config_pane.hotkeys import HotkeysPanel
 from tui.dashboard.config_pane.input_processing import InputProcessingPanel
-
 
 log = logging.getLogger("flowkey.tui.dashboard")
 
