@@ -29,6 +29,27 @@ def _percentile(values: list[float], pct: float) -> float:
     return round(sorted_vals[lo] + (sorted_vals[hi] - sorted_vals[lo]) * frac, 3)
 
 
+def read_history(path: Path) -> list[dict]:
+    """Read a JSONL history file, returning all parseable rows as dicts."""
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for raw in handle:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    rows.append(json.loads(raw))
+                except Exception as exc:
+                    log.debug("skipping unparseable history row: %s", exc)
+                    continue
+    except Exception as exc:
+        log.warning("could not read history: %s", exc)
+    return rows
+
+
 def compute_usage_stats(history_path: Path) -> dict:
     by_mode: dict[str, int] = {}
     latencies: list[float] = []
@@ -36,35 +57,22 @@ def compute_usage_stats(history_path: Path) -> dict:
     total = 0
     total_prompt = 0
     total_completion = 0
-    if history_path.exists():
-        try:
-            with history_path.open("r", encoding="utf-8", errors="replace") as handle:
-                for raw in handle:
-                    raw = raw.strip()
-                    if not raw:
-                        continue
-                    try:
-                        row = json.loads(raw)
-                    except Exception as exc:
-                        log.debug("skipping unparseable history row: %s", exc)
-                        continue
-                    total += 1
-                    mode = str(row.get("mode") or "unknown")
-                    by_mode[mode] = by_mode.get(mode, 0) + 1
-                    elapsed = row.get("elapsed_seconds")
-                    if isinstance(elapsed, (int, float)) and elapsed > 0:
-                        latencies.append(float(elapsed))
-                    tps = row.get("tok_per_sec")
-                    if isinstance(tps, (int, float)) and tps > 0:
-                        tok_speeds.append(float(tps))
-                    prompt_tokens = row.get("prompt_tokens")
-                    completion_tokens = row.get("completion_tokens")
-                    if isinstance(prompt_tokens, (int, float)):
-                        total_prompt += int(prompt_tokens)
-                    if isinstance(completion_tokens, (int, float)):
-                        total_completion += int(completion_tokens)
-        except Exception as exc:
-            log.warning("could not read usage history: %s", exc)
+    for row in read_history(history_path):
+        total += 1
+        mode = str(row.get("mode") or "unknown")
+        by_mode[mode] = by_mode.get(mode, 0) + 1
+        elapsed = row.get("elapsed_seconds")
+        if isinstance(elapsed, (int, float)) and elapsed > 0:
+            latencies.append(float(elapsed))
+        tps = row.get("tok_per_sec")
+        if isinstance(tps, (int, float)) and tps > 0:
+            tok_speeds.append(float(tps))
+        prompt_tokens = row.get("prompt_tokens")
+        completion_tokens = row.get("completion_tokens")
+        if isinstance(prompt_tokens, (int, float)):
+            total_prompt += int(prompt_tokens)
+        if isinstance(completion_tokens, (int, float)):
+            total_completion += int(completion_tokens)
     avg_latency = round(sum(latencies) / len(latencies), 3) if latencies else 0.0
     avg_tok_per_sec = round(sum(tok_speeds) / len(tok_speeds), 2) if tok_speeds else 0.0
     return {
@@ -83,35 +91,20 @@ def compute_usage_stats(history_path: Path) -> dict:
 def compute_dashboard_data(history_path: Path) -> dict:
     latencies_recent: list[float] = []
     hour_buckets = [0] * 24
-    if history_path.exists():
-        rows: list[dict] = []
-        try:
-            with history_path.open("r", encoding="utf-8", errors="replace") as handle:
-                for raw in handle:
-                    raw = raw.strip()
-                    if not raw:
-                        continue
-                    try:
-                        rows.append(json.loads(raw))
-                    except Exception as exc:
-                        log.debug("skipping unparseable dashboard row: %s", exc)
-                        continue
-        except Exception as exc:
-            log.warning("could not read dashboard history: %s", exc)
-            rows = []
-        for row in rows[-50:]:
-            elapsed = row.get("elapsed_seconds")
-            if isinstance(elapsed, (int, float)):
-                latencies_recent.append(float(elapsed))
-        for row in rows:
-            timestamp = str(row.get("timestamp") or "")
-            if len(timestamp) >= 13 and timestamp[10] == "T":
-                try:
-                    hour = int(timestamp[11:13])
-                    if 0 <= hour < 24:
-                        hour_buckets[hour] += 1
-                except Exception as exc:
-                    log.debug("could not parse hour from timestamp: %s", exc)
+    rows = read_history(history_path)
+    for row in rows[-50:]:
+        elapsed = row.get("elapsed_seconds")
+        if isinstance(elapsed, (int, float)):
+            latencies_recent.append(float(elapsed))
+    for row in rows:
+        timestamp = str(row.get("timestamp") or "")
+        if len(timestamp) >= 13 and timestamp[10] == "T":
+            try:
+                hour = int(timestamp[11:13])
+                if 0 <= hour < 24:
+                    hour_buckets[hour] += 1
+            except Exception as exc:
+                log.debug("could not parse hour from timestamp: %s", exc)
     return {
         "latencies_recent": latencies_recent,
         "hour_buckets": hour_buckets,

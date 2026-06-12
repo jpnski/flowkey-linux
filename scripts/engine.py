@@ -92,8 +92,6 @@ def refresh_runtime_config() -> None:
 
 refresh_runtime_config()
 
-PERF_TO_PMODE = flm_server.PERF_TO_PMODE
-
 # Token usage accumulator across all sub-calls made during one call_flm() run.
 _USAGE_ACC = {"prompt_tokens": 0, "completion_tokens": 0}
 
@@ -224,31 +222,30 @@ def stop_flm_server(force: bool = False) -> bool:
 
 def get_power_mode() -> str:
     cfg = load_config()
-    mode = cfg.flm_server.power_mode.strip().lower()
-    return mode if mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
+    return cfg.flm_server.power_mode.value
 
 
 def set_power_mode(mode: str) -> str:
-    normalized = str(mode or "").strip().lower()
-    if normalized not in {"powersaver", "balanced", "performance", "turbo"}:
-        raise RuntimeError(f"Invalid mode '{normalized}'. Use powersaver, balanced, performance, or turbo.")
+    try:
+        pm = config.PowerMode(mode.strip().lower())
+    except ValueError:
+        valid = ", ".join(m.value for m in config.PowerMode)
+        raise RuntimeError(f"Invalid mode '{mode}'. Use one of: {valid}.")
     cfg = load_config()
-    cfg.flm_server.power_mode = normalized
+    cfg.flm_server.power_mode = pm
     save_config(cfg)
-    return normalized
-
-
-_PERF_CYCLE = ["powersaver", "balanced", "performance", "turbo"]
+    return pm.value
 
 
 def toggle_power_mode() -> str:
-    current = get_power_mode()
+    modes = list(config.PowerMode)
+    current = config.PowerMode(get_power_mode())
     try:
-        idx = _PERF_CYCLE.index(current)
+        idx = modes.index(current)
     except ValueError:
         idx = -1
-    target = _PERF_CYCLE[(idx + 1) % len(_PERF_CYCLE)]
-    return set_power_mode(target)
+    target = modes[(idx + 1) % len(modes)]
+    return set_power_mode(target.value)
 
 
 def get_history_text_mode() -> str:
@@ -737,17 +734,9 @@ def handle_server_cli() -> bool:
         if action == "toggle_power_mode":
             print(toggle_power_mode())
             return True
-        if action == "set_power_balanced":
-            print(set_power_mode("balanced"))
-            return True
-        if action == "set_power_turbo":
-            print(set_power_mode("turbo"))
-            return True
-        if action == "set_power_performance":
-            print(set_power_mode("performance"))
-            return True
-        if action == "set_power_powersaver":
-            print(set_power_mode("powersaver"))
+        if action.startswith("set_power_"):
+            pm = action.removeprefix("set_power_")
+            print(set_power_mode(pm))
             return True
         if action == "history_text_status":
             print(get_history_text_mode())

@@ -9,6 +9,7 @@ import tempfile
 import threading
 from copy import copy as _copy
 from dataclasses import dataclass, field, asdict, MISSING
+from enum import Enum
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -41,6 +42,14 @@ def _field_default(cls: type, name: str):
 
 # ── Typed config dataclasses ────────────────────────────────────────────────
 
+class PowerMode(str, Enum):
+    """Power/performance mode for the FLM server."""
+    POWERSAVER = "powersaver"
+    BALANCED = "balanced"
+    PERFORMANCE = "performance"
+    TURBO = "turbo"
+
+
 @dataclass
 class MaxTokens:
     short: int = 160
@@ -72,7 +81,7 @@ class FlmApiConfig:
 @dataclass
 class FlmServerConfig:
     model: str = DEFAULT_CHAT_MODEL
-    power_mode: str = "balanced"
+    power_mode: PowerMode = PowerMode.BALANCED
     auto_start: bool = True
     startup_timeout_s: int = 25
     pull_timeout_seconds: int = 900
@@ -84,7 +93,7 @@ class FlmServerConfig:
     def from_dict(cls, d: dict) -> FlmServerConfig:
         return cls(
             model=str(d.get("model", cls.model)),
-            power_mode=str(d.get("power_mode", cls.power_mode)),
+            power_mode=PowerMode(d.get("power_mode", cls.power_mode.value)),
             auto_start=bool(d.get("auto_start", cls.auto_start)),
             startup_timeout_s=int(d.get("startup_timeout_s", cls.startup_timeout_s)),
             pull_timeout_seconds=int(d.get("pull_timeout_seconds", cls.pull_timeout_seconds)),
@@ -382,6 +391,17 @@ _PATCH_CHAT_KEYS = frozenset({
 })
 _PATCH_TONE_KEYS = frozenset({"preset"})
 
+# Section name → allowed-keys mapping for filter_config_patch.
+_PATCH_SECTION_KEYS: dict[str, frozenset[str]] = {
+    "flm_api": _PATCH_FLM_API_KEYS,
+    "flm_server": _PATCH_FLM_SERVER_KEYS,
+    "history": _PATCH_HISTORY_KEYS,
+    "input_processing": _PATCH_INPUT_PROCESSING_KEYS,
+    "notes": _PATCH_NOTES_KEYS,
+    "chat": _PATCH_CHAT_KEYS,
+    "hotkeys": _PATCH_HOTKEYS_KEYS,
+}
+
 
 def validate_patch_file(path: Path) -> Path:
     """Reject patch file paths outside temp/data/config dirs."""
@@ -423,38 +443,15 @@ def filter_config_patch(patch: dict) -> dict:
         raise ValueError("patch must be a JSON object")
     out: dict = {}
     for key, value in patch.items():
-        if key == "flm_api" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_FLM_API_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "flm_server" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_FLM_SERVER_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "history" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_HISTORY_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "input_processing" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_INPUT_PROCESSING_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "notes" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_NOTES_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "chat" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_CHAT_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "hotkeys" and isinstance(value, dict):
-            filtered = {k: v for k, v in value.items() if k in _PATCH_HOTKEYS_KEYS}
-            if filtered:
-                out[key] = filtered
-        elif key == "modes" and isinstance(value, dict):
+        if key == "modes" and isinstance(value, dict):
             tone = value.get("tone")
             if isinstance(tone, dict):
                 filtered_tone = {k: v for k, v in tone.items() if k in _PATCH_TONE_KEYS}
                 if filtered_tone:
                     out.setdefault("modes", {})["tone"] = filtered_tone
+        elif key in _PATCH_SECTION_KEYS and isinstance(value, dict):
+            allowed = _PATCH_SECTION_KEYS[key]
+            filtered = {k: v for k, v in value.items() if k in allowed}
+            if filtered:
+                out[key] = filtered
     return out

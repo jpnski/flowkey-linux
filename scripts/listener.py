@@ -611,18 +611,93 @@ def _get_grammar_fix_argv() -> list[str]:
     return ["flowkey-grammar-fix"]
 
 
-def process_selection() -> None:
-    """Main hotkey handler: capture selection, process, paste back.
+def _write_temp_input(body: str) -> str | None:
+    """Write *body* to a temp file and return its path, or None on error."""
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="flowkey_in_",
+            delete=False, encoding="utf-8",
+        ) as f:
+            f.write(body)
+            return f.name
+    except OSError as exc:
+        notify("Flowkey", f"Failed to write temp input: {exc}")
+        return None
 
-    Flow:
-      1. clipboard_capture() to get selected text
-      2. parse_mode_and_text() to extract mode
-      3. Write body to temp file
-      4. Run flowkey-grammar-fix subprocess
-      5. Read result from output temp file
-      6. paste_back(result)
-      7. Notify user of completion
-    """
+
+def _create_temp_output() -> str | None:
+    """Create an empty temp file for subprocess output and return its path."""
+    try:
+        f = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", prefix="flowkey_out_",
+            delete=False, encoding="utf-8",
+        )
+        path = f.name
+        f.close()
+        return path
+    except OSError as exc:
+        notify("Flowkey", f"Failed to create temp output: {exc}")
+        return None
+
+
+def _run_mode_subprocess(mode: str, infile: str, outfile: str) -> str | None:
+    """Launch the engine subprocess, wait for completion, read output.
+    Returns output text on success, None on failure (user already notified)."""
+    gf_argv = _get_grammar_fix_argv()
+    cmd = [*gf_argv, "--mode", mode, "--input-file", infile, "--output-file", outfile]
+    timeout = max(FLM_TIMEOUT_SECONDS + 20, 60)
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        notify("Flowkey", f"Grammar fix timed out after {timeout}s")
+        return None
+    except OSError as exc:
+        notify("Flowkey", f"Failed to launch grammar fix: {exc}")
+        return None
+
+    if result.returncode != 0:
+        err = (result.stderr or "").strip() or f"exit code {result.returncode}"
+        notify("Flowkey", f"Grammar fix failed: {err}")
+        return None
+
+    try:
+        output_text = Path(outfile).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        notify("Flowkey", f"Failed to read result: {exc}")
+        return None
+
+    if not output_text:
+        notify("Flowkey", "No output returned from grammar fix")
+        return None
+
+    return output_text
+
+
+_MODE_LABELS: dict[str, str] = {
+    "grammar": "Grammar fixed.",
+    "prompt": "Prompt refined.",
+    "summarize": "Summarized.",
+    "explain": "Explained.",
+    "tone": "Rewritten.",
+}
+
+
+def _notify_mode_complete(mode: str) -> None:
+    notify("Flowkey", _MODE_LABELS.get(mode, "Done."))
+
+
+def _cleanup_temp(*paths: str | None) -> None:
+    for p in paths:
+        if p:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def process_selection() -> None:
+    """Main hotkey handler: capture selection, process, paste back."""
     captured = clipboard_capture()
     if not captured:
         notify("Flowkey", "No text selected — select text and try again")
@@ -633,84 +708,24 @@ def process_selection() -> None:
         notify("Flowkey", f"No text remaining after '{mode}:' prefix" if mode != "grammar" else "No text selected")
         return
 
-    # Write body to temp input file
-    infile = None
-    outfile = None
+    infile = _write_temp_input(body)
+    if infile is None:
+        return
+
+    outfile = _create_temp_output()
+    if outfile is None:
+        _cleanup_temp(infile)
+        return
+
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", prefix="flowkey_in_",
-            delete=False, encoding="utf-8",
-        ) as f_in:
-            f_in.write(body)
-            infile = f_in.name
-
-        outfile_obj = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".txt", prefix="flowkey_out_",
-            delete=False, encoding="utf-8",
-        )
-        outfile = outfile_obj.name
-        outfile_obj.close()
-
-        # Run grammar fix subprocess
-        gf_argv = _get_grammar_fix_argv()
-        cmd = [
-            *gf_argv,
-            "--mode", mode,
-            "--input-file", infile,
-            "--output-file", outfile,
-        ]
-        timeout = max(FLM_TIMEOUT_SECONDS + 20, 60)
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True, text=True,
-                timeout=timeout, check=False,
-            )
-            if result.returncode != 0:
-                err = (result.stderr or "").strip() or f"exit code {result.returncode}"
-                notify("Flowkey", f"Grammar fix failed: {err}")
-                return
-        except subprocess.TimeoutExpired:
-            notify("Flowkey", f"Grammar fix timed out after {timeout}s")
-            return
-        except OSError as exc:
-            notify("Flowkey", f"Failed to launch grammar fix: {exc}")
+        output_text = _run_mode_subprocess(mode, infile, outfile)
+        if output_text is None:
             return
 
-        # Read output
-        try:
-            output_text = Path(outfile).read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            notify("Flowkey", f"Failed to read result: {exc}")
-            return
-
-        if not output_text:
-            notify("Flowkey", "No output returned from grammar fix")
-            return
-
-        # Paste back
         paste_back(output_text)
-
-        # Notify
-        mode_labels = {
-            "grammar": "Grammar fixed.",
-            "prompt": "Prompt refined.",
-            "summarize": "Summarized.",
-            "explain": "Explained.",
-            "tone": "Rewritten.",
-        }
-        label = mode_labels.get(mode, "Done.")
-        notify("Flowkey", label)
-
+        _notify_mode_complete(mode)
     finally:
-        # Clean up temp files
-        for p in (infile, outfile):
-            if p:
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
+        _cleanup_temp(infile, outfile)
 
 
 # ===================================================================

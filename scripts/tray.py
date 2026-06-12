@@ -22,11 +22,76 @@ import sys
 from pathlib import Path
 
 import loopback_http
+from config import PowerMode
 
 log = logging.getLogger("flowkey.tray")
 
 HERE = Path(__file__).resolve().parent
 ICON_PATH = HERE / "assets" / "flowkey.png"
+
+_power_mode: str = ""
+_x11_icon: object | None = None  # set by _run_x11 after icon creation
+
+
+def _daemon_action(action: str, notify_label: str, *, update_menu: bool = False) -> None:
+    """POST *action* to the daemon, notify with result, optionally refresh tray menu."""
+    global _power_mode
+    resp = loopback_http.daemon_post(action)
+    result = resp.get("result") or action.removeprefix("set_power_")
+    _notify(notify_label, str(result)[:120] if isinstance(result, str) else str(result))
+    if update_menu:
+        resp2 = loopback_http.daemon_post("power_mode")
+        _power_mode = str(resp2.get("result") or PowerMode.BALANCED.value).strip().lower()
+        icon = _x11_icon
+        if icon is not None:
+            import pystray as _ps  # noqa: F811
+            icon.menu = _build_x11_menu()  # type: ignore[union-attr]
+            icon.update_menu()  # type: ignore[union-attr]
+
+
+def _build_x11_menu():
+    """Build the pystray menu tree using current _power_mode."""
+    import pystray as _ps
+    pm = _power_mode
+    return _ps.Menu(
+        _ps.MenuItem("Open TUI", _launch_tui, default=True),
+        _ps.Menu.SEPARATOR,
+        _ps.MenuItem(
+            "Server",
+            _ps.Menu(
+                _ps.MenuItem("Status", lambda: _daemon_action("status", "Server status")),
+                _ps.MenuItem("Start", lambda: _daemon_action("start", "Server")),
+                _ps.MenuItem("Stop", lambda: _daemon_action("stop", "Server")),
+                _ps.MenuItem("Warmup", lambda: _daemon_action("warmup", "Server")),
+            ),
+        ),
+        _ps.MenuItem(
+            "Power Mode",
+            _ps.Menu(
+                _ps.MenuItem("Power Saver", lambda: _daemon_action("set_power_powersaver", "Power Mode", update_menu=True),
+                             checked=lambda: pm == PowerMode.POWERSAVER.value),
+                _ps.MenuItem("Balanced", lambda: _daemon_action("set_power_balanced", "Power Mode", update_menu=True),
+                             checked=lambda: pm == PowerMode.BALANCED.value),
+                _ps.MenuItem("Performance", lambda: _daemon_action("set_power_performance", "Power Mode", update_menu=True),
+                             checked=lambda: pm == PowerMode.PERFORMANCE.value),
+                _ps.MenuItem("Turbo", lambda: _daemon_action("set_power_turbo", "Power Mode", update_menu=True),
+                             checked=lambda: pm == PowerMode.TURBO.value),
+            ),
+        ),
+        _ps.Menu.SEPARATOR,
+        _ps.MenuItem("Exit", _on_exit),
+    )
+
+
+def _on_exit() -> None:
+    os._exit(0)
+
+
+def _refresh_power_mode() -> str:
+    global _power_mode
+    resp = loopback_http.daemon_post("power_mode")
+    _power_mode = str(resp.get("result") or PowerMode.BALANCED.value).strip().lower()
+    return _power_mode
 
 
 # ---------------------------------------------------------------------------
@@ -40,118 +105,16 @@ def _run_x11() -> None:
     from PIL import Image
 
     icon_image = Image.open(ICON_PATH)
-
-    def _open_tui() -> None:
-        _launch_tui()
-
-    def _server_status() -> None:
-        resp = loopback_http.daemon_post("status")
-        result = resp.get("result") or ""
-        _notify("Server status", str(result)[:120] or "unknown")
-
-    def _server_start() -> None:
-        resp = loopback_http.daemon_post("start")
-        _notify("Server", resp.get("result") or "started")
-
-    def _server_stop() -> None:
-        resp = loopback_http.daemon_post("stop")
-        _notify("Server", resp.get("result") or "stopped")
-
-    def _server_warmup() -> None:
-        resp = loopback_http.daemon_post("warmup")
-        _notify("Server", resp.get("result") or "warming up")
-
-    def _set_power_balanced() -> None:
-        resp = loopback_http.daemon_post("set_power_balanced")
-        _notify("Power Mode", resp.get("result") or "balanced")
-        _update_menu()
-
-    def _set_power_turbo() -> None:
-        resp = loopback_http.daemon_post("set_power_turbo")
-        _notify("Power Mode", resp.get("result") or "turbo")
-        _update_menu()
-
-    def _set_power_performance() -> None:
-        resp = loopback_http.daemon_post("set_power_performance")
-        _notify("Power Mode", resp.get("result") or "performance")
-        _update_menu()
-
-    def _set_power_powersaver() -> None:
-        resp = loopback_http.daemon_post("set_power_powersaver")
-        _notify("Power Mode", resp.get("result") or "powersaver")
-        _update_menu()
-
-    def _on_exit() -> None:
-        icon.stop()
-        os._exit(0)
-
-    # Current performance mode for checkmark
-    _power_mode: str = ""
-
-    def _refresh_power_mode() -> str:
-        nonlocal _power_mode
-        resp = loopback_http.daemon_post("power_mode")
-        _power_mode = str(resp.get("result") or "balanced").strip().lower()
-        return _power_mode
-
     _refresh_power_mode()
-
-    def _update_menu() -> None:
-        _refresh_power_mode()
-        icon.menu = _build_menu()
-        icon.update_menu()
-
-    def _build_menu():
-        import pystray as _ps
-
-        power_mode = _refresh_power_mode()
-        return _ps.Menu(
-            _ps.MenuItem("Open TUI", _open_tui, default=True),
-            _ps.Menu.SEPARATOR,
-            _ps.MenuItem(
-                "Server",
-                _ps.Menu(
-                    _ps.MenuItem("Status", _server_status),
-                    _ps.MenuItem("Start", _server_start),
-                    _ps.MenuItem("Stop", _server_stop),
-                    _ps.MenuItem("Warmup", _server_warmup),
-                ),
-            ),
-            _ps.MenuItem(
-                "Power Mode",
-                _ps.Menu(
-                    _ps.MenuItem(
-                        "Power Saver",
-                        _set_power_powersaver,
-                        checked=lambda: power_mode == "powersaver",
-                    ),
-                    _ps.MenuItem(
-                        "Balanced",
-                        _set_power_balanced,
-                        checked=lambda: power_mode == "balanced",
-                    ),
-                    _ps.MenuItem(
-                        "Performance",
-                        _set_power_performance,
-                        checked=lambda: power_mode == "performance",
-                    ),
-                    _ps.MenuItem(
-                        "Turbo",
-                        _set_power_turbo,
-                        checked=lambda: power_mode == "turbo",
-                    ),
-                ),
-            ),
-            _ps.Menu.SEPARATOR,
-            _ps.MenuItem("Exit", _on_exit),
-        )
 
     icon = pystray.Icon(
         "flowkey",
         icon_image,
         title="Flowkey",
-        menu=_build_menu(),
+        menu=_build_x11_menu(),
     )
+    global _x11_icon
+    _x11_icon = icon
     icon.run()
 
 

@@ -278,11 +278,11 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [x] **57.** Decompose `call_flm()` in `llm_client.py` — extracted `resolve_system_prompt()`, `ensure_server_running()`, `_process_grammar_chunks()`, `_compress_prompt_chunks()`, `_anti_echo_retry()`, `_rescue_prompt_quality()`. `call_flm()` shrunk from 181 lines to 58 lines. Split `_process_long_input()` into two mode-specific functions (grammar chunks vs prompt compression) with dispatch at the call site.
 
-- [ ] **58.** Decompose `process_selection()` in `listener.py` (lines 613-712, 100 lines, 4+ responsibilities: clipboard capture, mode parsing, temp file lifecycle, subprocess invocation with timeout, paste-back, notification).
+- [x] **58.** Decompose `process_selection()` in `listener.py` — extracted `_write_temp_input()`, `_create_temp_output()`, `_run_mode_subprocess()`, `_notify_mode_complete()`, `_cleanup_temp()`. Main function shrunk from 100 to 35 lines. Temp file boilerplate and subprocess error handling each isolated in single-responsibility helpers.
 
-- [ ] **59.** Decompose `_run_x11()` in `tray.py` (lines 67-187, 120 lines with 9 nested function definitions). Extract each nested function (`_open_tui`, `_server_status`, etc.) into module-level functions or a `TrayController` class.
+- [x] **59.** Decompose `_run_x11()` in `tray.py` — eliminated 9 nested functions. Replaced with single `_daemon_action()` helper + module-level `_power_mode` state + `_build_x11_menu()` + `_on_exit()`. `_run_x11()` shrunk from 120 lines to 20 lines (icon setup + run). Power mode updates trigger menu rebuild via `_x11_icon` global.
 
-- [ ] **60.** Decompose `ChatWidget` in `chat.py` (19 instance attributes, god class). Extract `ChatHistory`, `ChatInputHandler`, `StreamController`, `ConfigPoller` subcomponents.
+- [x] **60.** Decompose `ChatWidget` in `chat.py` — extracted `ChatHistory` class (thread-safe history with add/trim/clear/payload methods). Removed `_msg_seq`, `_lock`, `_thread_id` from ChatWidget. History access now goes through typed methods instead of raw list manipulation. Removed unused `uuid` import.
 
 - [ ] **61.** Decompose `FlmModelPanel` in `flm.py` (33 instance attributes, worst in codebase). Split model listing, download/pull, version check, and config state into separate focused classes.
 
@@ -292,13 +292,13 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 - [ ] **63.** Extract shared `BackgroundJob` abstraction from `benchmark.py`/`pull.py` — both have identical patterns: `_lock`, `_job: dict`, `_thread`, `_update(**fields)`, `status()`. ~50 lines of boilerplate each.
 
-- [ ] **64.** Consolidate power mode strings (`"powersaver"`, `"balanced"`, `"performance"`, `"turbo"`) — currently in 4+ locations across `daemon.py`, `flm_server.py`, `config.py`. Replace with a shared `PowerMode` enum/constant.
+- [x] **64.** Consolidate power mode strings into `PowerMode(str, Enum)` — defined in `config.py`, used across 7 files. Removed `PERF_TO_PMODE` identity dict from `flm_server.py`, replaced `_PERF_CYCLE` list with `list(PowerMode)`, consolidated 4 `set_power_*` action handlers into a single factory in `daemon.py`, simplified power-mode action dispatch in `engine.py`. Validation via `PowerMode(mode)` coercion instead of hardcoded sets. Tests pass, JSON roundtrip verified.
 
-- [ ] **65.** Fix `filter_config_patch` 8 identical elif branches (`config.py` lines 234-274) → data-driven loop over a `{section_name: allowed_keys}` dict.
+- [x] **65.** Replaced `filter_config_patch` 8 identical elif branches with a data-driven loop over `_PATCH_SECTION_KEYS` dict. Added `_PATCH_SECTION_KEYS: dict[str, frozenset[str]]` mapping section names to their allowed-key frozensets. Special `modes` handler retained as-is.
 
-- [ ] **66.** Fix `_WRITE_ACTIONS` duplicate action registry (`daemon.py` lines 544-553) — every mutating action name appears in both `ACTIONS` dict keys and `_WRITE_ACTIONS` set. Single source of truth needed.
+- [x] **66.** Removed `_WRITE_ACTIONS` duplicate action registry — replaced with `@_write_action` decorator on handler functions. `_WRITE_ACTIONS` is now derived from `ACTIONS` dict via `getattr(handler, '_write_action', False)`. Converted 3 tone lambda entries to named functions with `@_write_action`. Added `_write_action` attribute to factory-produced `_handler` closure in `_act_set_power_mode`. Single source of truth: tag or remove the decorator.
 
-- [ ] **67.** Consolidate telemetry file-reading boilerplate — `compute_usage_stats()` and `compute_dashboard_data()` both read the same JSONL file with identical open/parse/skip logic. Extract `_read_history(path) -> list[dict]` helper.
+- [x] **67.** Extracted `read_history(path) -> list[dict]` helper in `telemetry.py` — consolidates JSONL open/parse/skip logic used by both `compute_usage_stats()` and `compute_dashboard_data()`. Removed ~15 lines of duplicated boilerplate (file-exists check, try/except file-open, strip/skip-empty, parse-JSON/skip-unparseable).
 
 ### Threading & Async
 

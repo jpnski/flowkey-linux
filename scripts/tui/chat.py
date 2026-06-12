@@ -18,7 +18,6 @@ import re
 import subprocess
 import threading
 import time
-import uuid
 from pathlib import Path
 
 import loopback_http
@@ -79,6 +78,57 @@ HELP_TEXT = """
   Ctrl+P             — Commands
   Ctrl+C             — Quit (press twice)
 """
+
+
+class ChatHistory:
+    """Thread-safe message history with context-window trimming."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._messages: list[dict] = []
+        self._seq: int = 0
+
+    @property
+    def last(self) -> dict | None:
+        return self._messages[-1] if self._messages else None
+
+    @property
+    def messages(self) -> list[dict]:
+        return self._messages
+
+    def __len__(self) -> int:
+        return len(self._messages)
+
+    def add(self, role: str, content: str) -> dict:
+        with self._lock:
+            self._seq += 1
+            msg = {
+                "role": role,
+                "content": content,
+                "timestamp": time.time(),
+                "msg_id": self._seq,
+            }
+            self._messages.append(msg)
+            return msg
+
+    def trim_to_window(self, context_window_turns: int, extra: int = 0) -> None:
+        if context_window_turns > 0:
+            max_msgs = context_window_turns * 2 + extra
+            if len(self._messages) > max_msgs:
+                with self._lock:
+                    self._messages[:] = self._messages[-max_msgs:]
+
+    def update_last_assistant(self, content: str) -> None:
+        if self._messages and self._messages[-1]["role"] == "assistant":
+            self._messages[-1]["content"] = content
+
+    def to_payload(self) -> list[dict]:
+        return [{"role": m["role"], "content": m["content"]} for m in self._messages]
+
+    def clear(self) -> None:
+        with self._lock:
+            self._messages.clear()
+            self._seq = 0
 
 
 # ---------------------------------------------------------------------------
@@ -260,18 +310,15 @@ class ChatWidget(Container):
 
     def __init__(self) -> None:
         super().__init__()
-        self._history: list[dict] = []
+        self._history = ChatHistory()
         self._pending_multi_line: str | None = None
         self._suppress_change: bool = False
         self._prev_text: str = ""
-        self._msg_seq: int = 0  # monotonically increasing counter for unique message IDs
-        self._thread_id: str = uuid.uuid4().hex
         self._streaming_active = False
         self._current_bubble: MessageBubble | None = None
         self._llm_base_url = "http://127.0.0.1:52625"
         self._llm_model = "gemma4-it:e4b"
         self._daemon_available = False
-        self._lock = threading.Lock()
         # Timestamp of the last set_model() call.  _refresh_config uses this
         # to avoid overwriting _llm_model with stale data from the daemon
         # before its config_snapshot has converged after a model change.
@@ -567,12 +614,9 @@ class ChatWidget(Container):
         # Trim history to the last N complete exchanges (context_window_turns).
         # Each exchange is a user↔assistant pair (2 messages). Add 2 for the
         # current in-progress exchange (<user_msg>, "…") that was just added.
-        if self._context_window_turns > 0:
-            max_msgs = self._context_window_turns * 2 + 2
-            if len(self._history) > max_msgs:
-                self._history[:] = self._history[-max_msgs:]
+        self._history.trim_to_window(self._context_window_turns, extra=2)
 
-        history = [{"role": m["role"], "content": m["content"]} for m in self._history]
+        history = self._history.to_payload()
 
         threading.Thread(
             target=self._stream_llm_response,
@@ -670,14 +714,12 @@ class ChatWidget(Container):
     def _add_message(self, role: str, content: str, is_streaming: bool = False,
                      show_role: bool = True) -> None:
         """Add a message to the chat log."""
-        self._msg_seq += 1
-        msg = {"role": role, "content": content, "timestamp": time.time(), "msg_id": self._msg_seq}
-        with self._lock:
-            self._history.append(msg)
+        msg = self._history.add(role, content)
+        msg_id = msg["msg_id"]
 
         messages = self.query_one("#chat-messages", VerticalScroll)
         bubble = MessageBubble(role, content, is_streaming=is_streaming,
-                               show_role=show_role, msg_id=self._msg_seq)
+                               show_role=show_role, msg_id=msg_id)
         bubble.add_class(role)
         messages.mount(bubble)
         messages.scroll_end(animate=False)
@@ -703,10 +745,7 @@ class ChatWidget(Container):
         self._streaming_active = False
 
         # Update history with final content
-        if self._history:
-            last = self._history[-1]
-            if last["role"] == "assistant":
-                last["content"] = content
+        self._history.update_last_assistant(content)
 
         messages = self.query_one("#chat-messages", VerticalScroll)
         messages.scroll_end(animate=True)

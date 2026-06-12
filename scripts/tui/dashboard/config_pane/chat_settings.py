@@ -13,6 +13,7 @@ from textual.widgets import RadioButton, RadioSet, Static
 
 from tui.dashboard import DashboardWidget
 from tui.dashboard._daemon import _daemon_post
+from config import PowerMode
 
 log = logging.getLogger("flowkey.tui.dashboard")
 
@@ -58,10 +59,10 @@ class FlmServerPanel(Vertical):
             with Vertical(classes="settings-col"):
                 yield Static("Power mode", classes="col-label")
                 with RadioSet(id="power-radio-set"):
-                    yield RadioButton("Power Saver", id="powersaver")
-                    yield RadioButton("Balanced", id="balanced")
-                    yield RadioButton("Performance", id="performance")
-                    yield RadioButton("Turbo", id="turbo")
+                    yield RadioButton("Power Saver", id=PowerMode.POWERSAVER.value)
+                    yield RadioButton("Balanced", id=PowerMode.BALANCED.value)
+                    yield RadioButton("Performance", id=PowerMode.PERFORMANCE.value)
+                    yield RadioButton("Turbo", id=PowerMode.TURBO.value)
             with Vertical(classes="settings-col"):
                 yield Static("Server auto-start", classes="col-label")
                 with RadioSet(id="auto-start-radio-set"):
@@ -91,7 +92,7 @@ class FlmServerPanel(Vertical):
         except Exception as exc:
             log.warning("could not set auto-start radio: %s", exc)
         try:
-            pm = power_mode if power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
+            pm = power_mode if power_mode in {m.value for m in PowerMode} else PowerMode.BALANCED.value
             self.query_one(f"#{pm}", RadioButton).value = True
         except Exception as exc:
             log.warning("could not set power-mode radio: %s", exc)
@@ -124,7 +125,7 @@ class FlmServerPanel(Vertical):
                 )
 
         elif radio_set_id == "power-radio-set":
-            if radio_id not in {"powersaver", "balanced", "performance", "turbo"}:
+            if radio_id not in {m.value for m in PowerMode}:
                 return
             if radio_id == self._power_mode:
                 return

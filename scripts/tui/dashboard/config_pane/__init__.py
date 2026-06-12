@@ -10,6 +10,7 @@ from tui.dashboard._pane import Pane
 from tui.dashboard.config_pane.chat_panel import ChatPanel
 from tui.dashboard.config_pane.chat_settings import FlmServerPanel
 from tui.dashboard.config_pane.flm import FlmModelPanel
+from config import PowerMode
 from tui.dashboard.config_pane.hotkeys import HotkeysPanel
 from tui.dashboard.config_pane.input_processing import InputProcessingPanel
 
@@ -139,9 +140,10 @@ class ConfigPane(Pane):
         except Exception as exc:
             log.warning("server panel not ready: %s", exc)
             return
+        pm_raw = server_cfg.get("power_mode", PowerMode.BALANCED.value)
         panel.update_server_settings(
             auto_start=bool(server_cfg.get("auto_start", True)),
-            power_mode=str(server_cfg.get("power_mode", "balanced")),
+            power_mode=PowerMode(str(pm_raw).strip().lower()).value if isinstance(pm_raw, str) else PowerMode.BALANCED.value,
             log_to_file=bool(server_cfg.get("log_to_file", True)),
         )
 

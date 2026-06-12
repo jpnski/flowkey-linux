@@ -17,9 +17,9 @@ from pathlib import Path
 
 from subprocess_util import run_captured
 
-log = logging.getLogger("flowkey.flmserver")
+import config
 
-PERF_TO_PMODE = {"powersaver": "powersaver", "balanced": "balanced", "performance": "performance", "turbo": "turbo"}
+log = logging.getLogger("flowkey.flmserver")
 
 # FastFlowLM upstream release feed.
 FLM_RELEASES_API = "https://api.github.com/repos/FastFlowLM/FastFlowLM/releases/latest"
@@ -164,8 +164,10 @@ def start_flm_server(
         return "already_running"
 
     host, port = flm_host_port(settings.base_url)
-    perf_mode = settings.power_mode if settings.power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
-    pmode = PERF_TO_PMODE.get(perf_mode, "turbo")
+    try:
+        pmode = config.PowerMode(settings.power_mode.strip().lower()).value
+    except ValueError:
+        pmode = config.PowerMode.BALANCED.value
     args = [
         "flm",
         "serve",

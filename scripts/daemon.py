@@ -30,7 +30,7 @@ import traceback
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import config
 import engine
@@ -127,6 +127,12 @@ def _autostart_desktop_path() -> str:
     return str(_AUTOSTART_DIR / _AUTOSTART_DESKTOP)
 
 
+def _write_action(fn):
+    """Decorator: mark a handler function as requiring the write lock."""
+    fn._write_action = True
+    return fn
+
+
 def _act_get_autostart_state(_args: dict) -> dict:
     """Report whether the XDG autostart .desktop file exists."""
     path = _autostart_desktop_path()
@@ -134,6 +140,7 @@ def _act_get_autostart_state(_args: dict) -> dict:
     return {"enabled": exists, "supported": True, "value": path if exists else ""}
 
 
+@_write_action
 def _act_set_autostart(args: dict) -> dict:
     """Create or remove the XDG autostart .desktop entry.
 
@@ -173,20 +180,24 @@ def _act_set_autostart(args: dict) -> dict:
     return {"ok": True, "enabled": False, "value": ""}
 
 
+@_write_action
 def _act_start(_args: dict) -> str:
     return engine.start_flm_server(force_restart=False)
 
 
+@_write_action
 def _act_warmup(_args: dict) -> str:
     engine.start_flm_server(force_restart=False)
     engine.warmup_request()
     return "warmed_up"
 
 
+@_write_action
 def _act_restart(_args: dict) -> str:
     return engine.start_flm_server(force_restart=True)
 
 
+@_write_action
 def _act_stop(_args: dict) -> str:
     return "stopped" if engine.stop_flm_server(force=True) else "not_running"
 
@@ -195,38 +206,38 @@ def _act_power_mode(_args: dict) -> str:
     return engine.get_power_mode()
 
 
+@_write_action
 def _act_toggle_power_mode(_args: dict) -> str:
     return engine.toggle_power_mode()
 
 
-def _act_set_power_balanced(_args: dict) -> str:
-    return engine.set_power_mode("balanced")
+def _act_set_power_mode(action_name: str) -> Callable[[dict], str]:
+    """Return a handler that delegates to engine.set_power_mode with the mode
+    extracted from the action name (e.g. 'set_power_turbo' → 'turbo')."""
+    mode = action_name.removeprefix("set_power_")
 
+    def _handler(_args: dict) -> str:
+        return engine.set_power_mode(mode)
 
-def _act_set_power_turbo(_args: dict) -> str:
-    return engine.set_power_mode("turbo")
-
-
-def _act_set_power_performance(_args: dict) -> str:
-    return engine.set_power_mode("performance")
-
-
-def _act_set_power_powersaver(_args: dict) -> str:
-    return engine.set_power_mode("powersaver")
+    _handler._write_action = True
+    return _handler
 
 
 def _act_history_text_status(_args: dict) -> str:
     return engine.get_history_text_mode()
 
 
+@_write_action
 def _act_toggle_history_text(_args: dict) -> str:
     return engine.toggle_history_text_mode()
 
 
+@_write_action
 def _act_set_history_visible(_args: dict) -> str:
     return engine.set_history_text_mode("visible")
 
 
+@_write_action
 def _act_set_history_redacted(_args: dict) -> str:
     return engine.set_history_text_mode("redacted")
 
@@ -235,10 +246,12 @@ def _act_tone_preset(_args: dict) -> str:
     return engine.get_tone_preset()
 
 
+@_write_action
 def _act_cycle_tone_preset(_args: dict) -> str:
     return engine.cycle_tone_preset()
 
 
+@_write_action
 def _act_set_tone(args: dict) -> str:
     preset = str(args.get("preset", "")).strip().lower()
     if preset not in {"formal", "casual", "friendly"}:
@@ -249,6 +262,21 @@ def _act_set_tone(args: dict) -> str:
     cfg.modes["tone"].preset = preset
     engine.save_config(cfg)
     return preset
+
+
+@_write_action
+def _act_set_tone_formal(_args: dict) -> str:
+    return _act_set_tone({"preset": "formal"})
+
+
+@_write_action
+def _act_set_tone_casual(_args: dict) -> str:
+    return _act_set_tone({"preset": "casual"})
+
+
+@_write_action
+def _act_set_tone_friendly(_args: dict) -> str:
+    return _act_set_tone({"preset": "friendly"})
 
 
 def _act_stats(_args: dict) -> dict:
@@ -275,6 +303,7 @@ def _act_models_not_installed(_args: dict) -> dict:
     return engine.list_flm_models("not-installed")
 
 
+@_write_action
 def _act_pull_model(args: dict) -> str:
     name = str(args.get("value", "")).strip()
     if not name:
@@ -294,6 +323,7 @@ def _act_pull_model(args: dict) -> str:
     return output.strip() or f"pulled {name}"
 
 
+@_write_action
 def _act_remove_model(args: dict) -> str:
     name = str(args.get("value", "")).strip()
     if not name:
@@ -308,6 +338,7 @@ def _act_remove_model(args: dict) -> str:
     return output.strip() or f"removed {name}"
 
 
+@_write_action
 def _act_apply_config_patch(args: dict) -> str:
     patch = args.get("patch")
     if patch is None:
@@ -334,6 +365,7 @@ def _act_update_check(_args: dict) -> dict:
     return engine.check_for_update()
 
 
+@_write_action
 def _act_update_apply(_args: dict) -> str:
     return engine.apply_update()
 
@@ -350,6 +382,7 @@ def _act_flm_update_check(args: dict) -> dict:
     )
 
 
+@_write_action
 def _act_bench_start(args: dict) -> dict:
     """Kick off `flm bench <model>` on a background thread (10-20 min)."""
     import benchmark
@@ -366,6 +399,7 @@ def _act_bench_start(args: dict) -> dict:
     )
 
 
+@_write_action
 def _act_pull_start(args: dict) -> dict:
     """Start an async `flm pull <model>` on a background thread (non-blocking)."""
     import pull
@@ -492,10 +526,10 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
     "stop": _act_stop,
     "power_mode": _act_power_mode,
     "toggle_power_mode": _act_toggle_power_mode,
-    "set_power_balanced": _act_set_power_balanced,
-    "set_power_turbo": _act_set_power_turbo,
-    "set_power_performance": _act_set_power_performance,
-    "set_power_powersaver": _act_set_power_powersaver,
+    "set_power_balanced": _act_set_power_mode("set_power_balanced"),
+    "set_power_turbo": _act_set_power_mode("set_power_turbo"),
+    "set_power_performance": _act_set_power_mode("set_power_performance"),
+    "set_power_powersaver": _act_set_power_mode("set_power_powersaver"),
     "history_text_status": _act_history_text_status,
     "toggle_history_text": _act_toggle_history_text,
     "set_history_visible": _act_set_history_visible,
@@ -503,9 +537,9 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
     "tone_preset": _act_tone_preset,
     "cycle_tone_preset": _act_cycle_tone_preset,
     "set_tone": _act_set_tone,
-    "set_tone_formal": lambda a: _act_set_tone({"preset": "formal"}),
-    "set_tone_casual": lambda a: _act_set_tone({"preset": "casual"}),
-    "set_tone_friendly": lambda a: _act_set_tone({"preset": "friendly"}),
+    "set_tone_formal": _act_set_tone_formal,
+    "set_tone_casual": _act_set_tone_casual,
+    "set_tone_friendly": _act_set_tone_friendly,
     "stats": _act_stats,
     "dashboard_data": _act_dashboard_data,
     "config_snapshot": _act_config_snapshot,
@@ -538,15 +572,11 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
 
 # Mutating actions get a global lock so concurrent writes can't race the config file.
 _write_lock = threading.Lock()
-_WRITE_ACTIONS = {
-    "start", "warmup", "restart", "stop",
-    "toggle_power_mode", "set_power_balanced", "set_power_turbo",
-    "set_power_performance", "set_power_powersaver",
-    "toggle_history_text", "set_history_visible", "set_history_redacted",
-    "cycle_tone_preset", "set_tone", "set_tone_formal", "set_tone_casual", "set_tone_friendly",
-    "pull_model", "remove_model", "apply_config_patch", "update_apply",
-    "set_autostart", "bench_start", "pull_start",
-}
+# Derived from ACTIONS — tag a handler with @_write_action to register it.
+_WRITE_ACTIONS: frozenset[str] = frozenset(
+    name for name, handler in ACTIONS.items()
+    if getattr(handler, '_write_action', False)
+)
 
 # Actions safe to invoke via engine.py --app-action when the daemon is down
 # (no args body required).  Also used by listener.py subprocess fallback.
