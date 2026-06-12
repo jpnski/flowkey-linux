@@ -379,6 +379,8 @@ def test_apply_config_patch_does_not_restart_when_model_unchanged(fresh_modules,
 
 def test_apply_config_patch_rejects_embedding_model(fresh_modules, monkeypatch):
     engine = fresh_modules("engine")
+    # Seed the config file so load_config succeeds and merge + validate runs.
+    engine.save_config(engine.load_config())
     list_calls = {"n": 0}
 
     def fake_list():

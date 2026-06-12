@@ -322,9 +322,30 @@ class FlowkeyConfig:
 
 # ── Serialisation ──────────────────────────────────────────────────────────
 
+_SEED_CONFIG: dict | None = None
+
+
+def _seed_config_dict() -> dict:
+    """Return the shipped seed config as a flat dict (cached).
+
+    The seed config (``scripts/_data/config.json``) is the single source of
+    truth for default values — especially modes, which define the app's
+    built-in features (grammar, prompt, summarize, explain, tone).  User
+    overrides are merged on top at load time.
+    """
+    global _SEED_CONFIG
+    if _SEED_CONFIG is None:
+        seed_path = _paths.CONFIG_SEED_FILE
+        if seed_path.exists():
+            _SEED_CONFIG = json.loads(seed_path.read_text(encoding="utf-8"))
+        else:
+            _SEED_CONFIG = asdict(FlowkeyConfig())
+    return dict(_SEED_CONFIG)
+
+
 def _from_dict(d: dict) -> FlowkeyConfig:
     """Build a typed config from a parsed JSON object, merging user values over defaults."""
-    merged = asdict(FlowkeyConfig())  # defaults as flat dict for deep_merge
+    merged = _seed_config_dict()  # shipped defaults (incl. all modes)
     deep_merge(merged, d)
     return FlowkeyConfig.from_dict(merged)
 
@@ -332,15 +353,15 @@ def _from_dict(d: dict) -> FlowkeyConfig:
 def load_config(config_path: Path) -> FlowkeyConfig:
     """Load and merge user config from disk. Returns a typed FlowkeyConfig."""
     if not config_path.exists():
-        return FlowkeyConfig()
+        return FlowkeyConfig.from_dict(_seed_config_dict())
     try:
         loaded = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         log.warning("config file unreadable/invalid (%s), using defaults: %s", config_path, exc)
-        return FlowkeyConfig()
+        return FlowkeyConfig.from_dict(_seed_config_dict())
     if not isinstance(loaded, dict):
         log.warning("config file root is not an object (%s), using defaults", config_path)
-        return FlowkeyConfig()
+        return FlowkeyConfig.from_dict(_seed_config_dict())
     return _from_dict(loaded)
 
 
