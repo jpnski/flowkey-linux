@@ -170,7 +170,7 @@ FLM_SERVER_LOG_FILE: Path = LOGS_DIR / "flm_server.log"
 
 # Source template shipped in the source tree. On first run we copy it to
 # CONFIG_FILE if the user doesn't already have one.
-CONFIG_SEED_FILE:    Path = SCRIPTS_DIR / "_data" / "config.json"
+CONFIG_SEED_FILE:    Path = SCRIPTS_DIR / "config.seed.json"
 
 
 def seed_config_if_missing() -> bool:

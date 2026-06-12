@@ -8,7 +8,7 @@ import pytest
 
 RELEASE_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = RELEASE_ROOT / "scripts"
-CONFIG_EXAMPLE = SCRIPTS_DIR / "_data" / "config.json"
+CONFIG_EXAMPLE = SCRIPTS_DIR / "config.seed.json"
 
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))

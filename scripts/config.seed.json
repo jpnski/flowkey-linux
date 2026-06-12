@@ -1,0 +1,129 @@
+{
+  "theme": "nord",
+  "flm_api": {
+    "url": "http://127.0.0.1:52625",
+    "timeout_s": 60
+  },
+  "flm_server": {
+    "model": "gemma4-it:e4b",
+    "power_mode": "balanced",
+    "auto_start": true,
+    "startup_timeout_s": 25,
+    "pull_timeout_seconds": 900,
+    "log_to_file": false,
+    "log_file": "flm_server.log",
+    "extra_args": []
+  },
+  "input_processing": {
+    "enabled": true,
+    "input_length_threshold": 4000,
+    "chunk_size": 800,
+    "min_chunk_size": 200
+  },
+  "grammar_ignore_words": [],
+  "hotkeys": {
+    "grammar_fix": "ctrl+alt+g",
+    "open_chat": "",
+    "capture_note": "ctrl+alt+n",
+    "ask_chat": "ctrl+alt+a"
+  },
+  "history": {
+    "store_text": false,
+    "hist_file": "grammar_fix_history.jsonl"
+  },
+  "notes": {
+    "vault_dir": "$HOME/Documents/Flowkey_Notes",
+    "categories": [
+      "work/technical",
+      "work/managerial",
+      "work/career",
+      "research",
+      "personal",
+      "ideas"
+    ],
+    "fetch_timeout_seconds": 8,
+    "max_extracted_chars": 2000,
+    "low_confidence_to_inbox": true,
+    "generate_title": true,
+    "generate_summary": true
+  },
+  "chat": {
+    "request_timeout_s": 240,
+    "temperature": 0.3,
+    "max_tokens": 2048,
+    "context_window_turns": 18,
+    "system_prompt": "You are a concise, helpful local assistant. Answer in Markdown. Keep replies short unless asked to elaborate."
+  },
+  "modes": {
+    "grammar": {
+      "label": "Grammar fix",
+      "shortcut": "Ctrl+Shift+G",
+      "description": "Fix grammar and wording while preserving meaning.",
+      "system_prompt": "Fix grammar, spelling, punctuation, capitalization, and obvious wording mistakes. Preserve meaning. Keep emoji/smiley characters exactly as written when possible. Return only corrected text.",
+      "max_tokens": {
+        "short": 160,
+        "medium": 220,
+        "long": 280
+      }
+    },
+    "prompt": {
+      "label": "Prompt fix (Claude)",
+      "shortcut": "",
+      "description": "Rewrite rough text into a Claude-ready prompt (use prompt: prefix).",
+      "system_prompt": "Rewrite the user text as a Claude-ready prompt. Structure: <task> (one primary deliverable, one sentence), <context> (background facts only, no instructions), <constraints> (concrete + testable: length, format, tone), <output_format> (exact shape — Markdown headers, JSON keys, etc.). Keep each section short. No meta-framing, no preamble. Preserve intent and emoji. Return only the prompt.",
+      "max_tokens": {
+        "short": 700,
+        "medium": 900,
+        "long": 1200
+      }
+    },
+    "summarize": {
+      "label": "Summarize",
+      "shortcut": "",
+      "description": "3-bullet summary of selected text (use summarize: prefix).",
+      "system_prompt": "Summarize the user text as exactly 3 bullet points. Each bullet is one sentence, factual, no preamble or sign-off. Preserve emoji/smiley characters when relevant. Return only the bullets.",
+      "max_tokens": {
+        "short": 160,
+        "medium": 220,
+        "long": 280
+      }
+    },
+    "explain": {
+      "label": "Explain code/regex/SQL",
+      "shortcut": "",
+      "description": "Plain-English explanation of selected code, regex, or query (use explain: prefix).",
+      "system_prompt": "Explain the selected code, regex, or SQL in 2-3 plain-English sentences. Call out one non-obvious edge case if any. No preamble. Return only the explanation.",
+      "max_tokens": {
+        "short": 160,
+        "medium": 220,
+        "long": 280
+      }
+    },
+    "tone": {
+      "label": "Tone shift",
+      "shortcut": "",
+      "description": "Rewrite in selected tone (use tone: prefix). Active preset cycles from the tray.",
+      "system_prompt": "Rewrite the user text in a formal, professional tone. Preserve meaning and emoji/smiley. Return only the rewritten text.",
+      "max_tokens": {
+        "short": 160,
+        "medium": 220,
+        "long": 280
+      },
+      "preset": "formal",
+      "presets": {
+        "formal": {
+          "system_prompt": "Rewrite the user text in a formal, professional tone. Preserve meaning and emoji/smiley. Return only the rewritten text."
+        },
+        "casual": {
+          "system_prompt": "Rewrite the user text in a casual, conversational tone. Preserve meaning and emoji/smiley. Return only the rewritten text."
+        },
+        "friendly": {
+          "system_prompt": "Rewrite the user text in a warm, friendly tone. Preserve meaning and emoji/smiley. Return only the rewritten text."
+        }
+      }
+    }
+  },
+  "update": {
+    "feed_url": ""
+  }
+}
