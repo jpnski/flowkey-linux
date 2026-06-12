@@ -9,6 +9,7 @@ import logging
 import shutil
 import subprocess
 import sys
+import xml.sax.saxutils
 
 log = logging.getLogger("flowkey.notify")
 
@@ -16,14 +17,8 @@ _NOTIFY_SEND_AVAILABLE: bool = shutil.which("notify-send") is not None
 
 
 def xml_escape(s: str) -> str:
-    return (str(s or "")
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
-            .replace("'", "&apos;")
-            .replace("\r\n", " ")
-            .replace("\n", " "))
+    s = xml.sax.saxutils.escape(str(s or ""), {'"': "&quot;", "'": "&apos;"})
+    return s.replace("\r\n", " ").replace("\n", " ")
 
 
 def show_toast_async(title: str, message: str) -> None:

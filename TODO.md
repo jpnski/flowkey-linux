@@ -236,106 +236,108 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ### Naming & File Organization
 
-- [ ] **40.** Rename `scripts/grammar_fix.py` → `scripts/engine.py` — this 932-line module is the central LLM engine (server lifecycle, 6 processing modes, config, health checks, update checks), not a grammar-only tool. Update all imports in `daemon.py`, `notes.py`, and `pyproject.toml` references.
+- [x] **40.** Rename `scripts/grammar_fix.py` → `scripts/engine.py` — this 932-line module is the central LLM engine (server lifecycle, 6 processing modes, config, health checks, update checks), not a grammar-only tool. Update all imports in `daemon.py`, `notes.py`, listener.py, test files, and `pyproject.toml` references. (14 pre-existing test failures unchanged)
 
-- [ ] **41.** Rename `scripts/actions.py` → `scripts/constants.py` — 24 lines of constants, zero action functions; misleading name.
+- [x] **41.** Delete `scripts/actions.py` and relocate its contents — `PULL_MODEL_TIMEOUT_SECONDS` → `config.json` (`flm_server.pull_timeout_seconds: 900`) and `READ_ONLY_SUBPROCESS_ACTIONS` → `daemon.py`. Both call sites (daemon.py, engine.py) read from config. listener.py imports from daemon. File removed from repo.
 
-- [ ] **42.** Rename/move `subprocess_util.py` — dead `NO_WINDOW = 0` (Windows-ism), misleading `popen_hidden()` (no-op pass-through), `run_hidden()` (nothing hidden). Collapse the 3 trivial functions into callers or rename accurately.
+- [x] **42.** Remove `sys.path.insert(0, str(HERE))` hack from `daemon.py` — Python adds `scripts/` to `sys.path[0]` automatically when running `daemon.py` directly. Moved sibling imports (`engine`, `notify`, `config`) to top of module, removed `# noqa: E402` comments.
 
-- [ ] **43.** Move `notify.xml_escape()` to a shared utility — it's used by daemon.py but lives in a notification module. Either use stdlib `xml.sax.saxutils.escape` or move to `loopback_http.py`.
+- [x] **43.** Clean up `subprocess_util.py` — removed dead `NO_WINDOW = 0` (unreferenced), removed dead `popen_hidden()` (no-op pass-through, unreferenced), renamed `run_hidden()` → `run_captured()` (no "hidden" behavior on Linux). Updated 5 call sites across `flm_server.py`, `benchmark.py`, and test monkeypatches in `test_flm_server.py`.
+
+- [x] **44.** Replace hand-rolled `notify.xml_escape()` with stdlib `xml.sax.saxutils.escape()`. Delete dead `_xml_escape` wrapper from `daemon.py` and its test in `test_daemon.py`. Keep `xml_escape` in `notify.py` (it's a notification helper; stdlib + newline strip is the correct implementation).
 
 ### Bug Fixes (CRITICAL)
 
-- [ ] **44.** Fix logging hierarchy mismatch across 14+ modules — all modules use `logging.getLogger("flowkey.*")` but the sole handler setup (`_setup_logging` in daemon.py line 692) targets `"ffp"`. These are separate hierarchies. All log statements in the application are silently discarded. Pick one hierarchy and fix all modules.
+- [x] **45.** Fix logging hierarchy mismatch across 21 modules — `_setup_logging()` in `daemon.py` configured handlers on `logging.getLogger("ffp")` but every module uses `logging.getLogger("flowkey.*")`. These are separate hierarchies, so all log statements were silently discarded. Fixed: change `"ffp"` → `"flowkey"` so all `flowkey.*` loggers propagate to the handler-equipped ancestor.
 
-- [ ] **45.** Fix `dict_restore` index-ordering bug in `llm_client.py` line 220-226 — replacement loop iterates dict items; placeholder `__FFPDICT1__` is a substring of `__FFPDICT10__`, so ordered replacement corrupts text with >=10 protected words. Sort by key length descending before replacing.
+- [x] **46.** Fix `dict_restore` index-ordering bug in `llm_client.py` — placeholder `__FFPDICT1__` is a substring of `__FFPDICT10__`, so iterating dict in insertion order corrupts restored text when >=10 words are protected. Fix: sort placeholders by length descending before replacing.
 
-- [ ] **46.** Fix stale PID in autostart file (`daemon.py` line 157) — `Exec=flowkey-listener --parent-pid {os.getpid()}` embeds the current daemon PID which is stale after reboot. The `--parent-pid` feature becomes a no-op pointing to a dead PID. Remove PID from autostart file or use a different lifecycle mechanism.
+- [x] **47.** Fix stale PID in autostart file (`daemon.py` line 151) — `Exec=flowkey-listener --parent-pid {os.getpid()}` embedded the daemon PID at file-write time, which is stale after reboot. Parent-watching silently does nothing. Removed `--parent-pid` from autostart entry entirely — autostart is a system-level lifecycle, not a daemon-spawned child.
 
-- [ ] **47.** Fix TOCTOU race and timer state corruption in `pull.py` — `cancel_pull()` reads `_proc` outside its lock (line 258), so worker's `finally` block can set `_proc = None` between lock release and terminate call. Also `_schedule_reset()` fires a non-cancelable timer: if a pull completes and schedules a 10s reset, but a new pull starts within those 10s, the timer resets the in-flight pull to idle.
+- [x] **48.** Fix TOCTOU race and timer state corruption in `pull.py` — moved `_proc = None` inside the lock in `_default_runner()` so `cancel_pull()` can't read a stale `_proc` pointer. Added `_reset_timer` global + `_cancel_reset_timer()`, called at start of both `start_pull()` and `_schedule_reset()`, so a stale 10s reset from a previous pull can't clobber an in-flight pull.
 
-- [ ] **48.** Fix `_finalize_stream` history update bug in `chat.py` line 719 — condition `if last["role"] in ("assistant", self._history[-1]["role"])` is always True (both elements are `last["role"]`), so *every* message content gets overwritten on finalize, not just assistant messages. Should be `if last["role"] == "assistant"`.
+- [x] **49.** Fix `_finalize_stream` history update bug in `chat.py` line 719 — `self._history[-1]` is the same object as `last`, so the condition was always True and every message content (including user messages) was overwritten on finalize. Changed to `last["role"] == "assistant"`.
 
-- [ ] **49.** Fix `bool("false")` → `True` in `daemon.py` line 148 — `enabled = bool(args.get("enabled"))` treats the string `"false"` as True. Use `str(args.get("enabled", "")).lower() in ("1", "true", "yes")`.
+- [x] **50.** Fix `bool("false")` → `True` in `daemon.py` — `bool(args.get("enabled"))` treated any non-empty string as True, including `"false"`. Replaced with proper parsing: if already bool, pass through; otherwise check `str(raw or "").lower() in ("1", "true", "yes")`.
 
-- [ ] **50.** Fix `_shortcut_to_evdev` potential `NameError` in `listener.py` line 1265-1284 — variable `i` is only assigned in the `else` branch of `if "+" in raw:`, but line 1284 reads `shortcut[i:]` unconditionally. If the shortcut contains `+`, `i` is never assigned.
+- [x] **51.** Fix `_shortcut_to_evdev` potential `NameError` in `listener.py` — variable `i` was only assigned in the `else` (compact format) branch, but line 1284 read `shortcut[i:]` unconditionally. Any hotkey using the human-readable `+` format (e.g., `ctrl+alt+g`) would raise a `NameError`. Fixed: moved the `i`-dependent line into the `else` block where `i` is defined.
 
 ### Systemic Anti-patterns
 
-- [ ] **51.** Eliminate bare `except Exception: pass` epidemic (~54 occurrences across codebase, heaviest in `tui/dashboard/` with 49). Replace with specific exception types + `log.warning()`. This is the single biggest quality issue — any bug in these handlers is invisible.
+- [x] **52.** Eliminate bare `except Exception: pass` epidemic (~72 occurrences across codebase). Replaced with `log.debug()`/`log.warning()` and contextual messages across 15 files. Fixed TUI stderr pollution (`flowkey.propagate = False`). Downgraded daemon HTTP/action/spawn logging to DEBUG to reduce daemon.log noise.
 
-- [ ] **52.** Replace dict-as-config with a typed config model — `DEFAULT_CONFIG` (`config.py` lines 32-126) is a 95-line god dict with 4+ levels of nesting and zero type safety. ~40+ fragile `.get("key", {}).get("subkey", default)` chains across the codebase. Use `@dataclass` or Pydantic model. Also replace all dict-as-pseudo-object patterns (usage stats in `llm_client.py`, job state in `benchmark.py`/`pull.py`, update info in `updater.py`, message history in `chat.py`).
+- [ ] **53.** Replace dict-as-config with a typed config model — `DEFAULT_CONFIG` (`config.py` lines 32-126) is a 95-line god dict with 4+ levels of nesting and zero type safety. ~40+ fragile `.get("key", {}).get("subkey", default)` chains across the codebase. Use `@dataclass` or Pydantic model. Also replace all dict-as-pseudo-object patterns (usage stats in `llm_client.py`, job state in `benchmark.py`/`pull.py`, update info in `updater.py`, message history in `chat.py`).
 
-- [ ] **53.** Consolidate `DAEMON_BASE_URL` (5 copies across `app.py`, `chat.py`, `tray.py`, `_daemon.py`, `listener.py`) and `_daemon_post` (3 implementations in `tray.py`, `_daemon.py`, `listener.py`) into a single shared module.
+- [ ] **54.** Consolidate `DAEMON_BASE_URL` (5 copies across `app.py`, `chat.py`, `tray.py`, `_daemon.py`, `listener.py`) and `_daemon_post` (3 implementations in `tray.py`, `_daemon.py`, `listener.py`) into a single shared module.
 
-- [ ] **54.** Fix module boundary violations — `daemon.py` calls `grammar_fix._warmup_request()` and `grammar_fix._flm_list()` (both private API, lines 184/271/275). `notes.py` calls `grammar_fix._call_flm_api()`, reads `grammar_fix.FLM_MODEL` and `grammar_fix.FLM_TIMEOUT_SECONDS` (lines 304-306). Either promote these to public API or route through existing public wrappers.
+- [ ] **55.** Fix module boundary violations — `daemon.py` calls `grammar_fix._warmup_request()` and `grammar_fix._flm_list()` (both private API, lines 184/271/275). `notes.py` calls `grammar_fix._call_flm_api()`, reads `grammar_fix.FLM_MODEL` and `grammar_fix.FLM_TIMEOUT_SECONDS` (lines 304-306). Either promote these to public API or route through existing public wrappers.
 
-- [ ] **55.** Eliminate local-import circular-dependency hacks — 9+ occurrences of `from tui.dashboard import DashboardWidget` and `from tui.chat import ChatWidget` inside function bodies across dashboard config_pane files. Restructure module dependency graph or add an event bus / signals layer.
+- [ ] **56.** Eliminate local-import circular-dependency hacks — 9+ occurrences of `from tui.dashboard import DashboardWidget` and `from tui.chat import ChatWidget` inside function bodies across dashboard config_pane files. Restructure module dependency graph or add an event bus / signals layer.
 
 ### God Function & God Object Decomposition
 
-- [ ] **56.** Decompose `call_flm()` in `llm_client.py` (lines 229-410, 181 lines, 5+ responsibilities: system prompt resolution, server lifecycle, token budgeting, chunked grammar pipeline, chunked non-grammar pipeline, prompt-echo detection + retry, prompt rescue layer). Extract into at least 5-6 named functions.
+- [ ] **57.** Decompose `call_flm()` in `llm_client.py` (lines 229-410, 181 lines, 5+ responsibilities: system prompt resolution, server lifecycle, token budgeting, chunked grammar pipeline, chunked non-grammar pipeline, prompt-echo detection + retry, prompt rescue layer). Extract into at least 5-6 named functions.
 
-- [ ] **57.** Decompose `process_selection()` in `listener.py` (lines 613-712, 100 lines, 4+ responsibilities: clipboard capture, mode parsing, temp file lifecycle, subprocess invocation with timeout, paste-back, notification).
+- [ ] **58.** Decompose `process_selection()` in `listener.py` (lines 613-712, 100 lines, 4+ responsibilities: clipboard capture, mode parsing, temp file lifecycle, subprocess invocation with timeout, paste-back, notification).
 
-- [ ] **58.** Decompose `_run_x11()` in `tray.py` (lines 67-187, 120 lines with 9 nested function definitions). Extract each nested function (`_open_tui`, `_server_status`, etc.) into module-level functions or a `TrayController` class.
+- [ ] **59.** Decompose `_run_x11()` in `tray.py` (lines 67-187, 120 lines with 9 nested function definitions). Extract each nested function (`_open_tui`, `_server_status`, etc.) into module-level functions or a `TrayController` class.
 
-- [ ] **59.** Decompose `ChatWidget` in `chat.py` (19 instance attributes, god class). Extract `ChatHistory`, `ChatInputHandler`, `StreamController`, `ConfigPoller` subcomponents.
+- [ ] **60.** Decompose `ChatWidget` in `chat.py` (19 instance attributes, god class). Extract `ChatHistory`, `ChatInputHandler`, `StreamController`, `ConfigPoller` subcomponents.
 
-- [ ] **60.** Decompose `FlmModelPanel` in `flm.py` (33 instance attributes, worst in codebase). Split model listing, download/pull, version check, and config state into separate focused classes.
+- [ ] **61.** Decompose `FlmModelPanel` in `flm.py` (33 instance attributes, worst in codebase). Split model listing, download/pull, version check, and config state into separate focused classes.
 
-- [ ] **61.** Decompose `main()` functions — `listener.py` main (87 lines, 8+ things), `daemon.py` main (busy-wait), `install.py` main (41 lines, violates SRP), `notes.py` `_categorize_in_background` (59 lines).
+- [ ] **62.** Decompose `main()` functions — `listener.py` main (87 lines, 8+ things), `daemon.py` main (busy-wait), `install.py` main (41 lines, violates SRP), `notes.py` `_categorize_in_background` (59 lines).
 
 ### Cross-File Consolidation
 
-- [ ] **62.** Extract shared `BackgroundJob` abstraction from `benchmark.py`/`pull.py` — both have identical patterns: `_lock`, `_job: dict`, `_thread`, `_update(**fields)`, `status()`. ~50 lines of boilerplate each.
+- [ ] **63.** Extract shared `BackgroundJob` abstraction from `benchmark.py`/`pull.py` — both have identical patterns: `_lock`, `_job: dict`, `_thread`, `_update(**fields)`, `status()`. ~50 lines of boilerplate each.
 
-- [ ] **63.** Consolidate power mode strings (`"powersaver"`, `"balanced"`, `"performance"`, `"turbo"`) — currently in 4+ locations across `daemon.py`, `flm_server.py`, `config.py`. Replace with a shared `PowerMode` enum/constant.
+- [ ] **64.** Consolidate power mode strings (`"powersaver"`, `"balanced"`, `"performance"`, `"turbo"`) — currently in 4+ locations across `daemon.py`, `flm_server.py`, `config.py`. Replace with a shared `PowerMode` enum/constant.
 
-- [ ] **64.** Fix `filter_config_patch` 8 identical elif branches (`config.py` lines 234-274) → data-driven loop over a `{section_name: allowed_keys}` dict.
+- [ ] **65.** Fix `filter_config_patch` 8 identical elif branches (`config.py` lines 234-274) → data-driven loop over a `{section_name: allowed_keys}` dict.
 
-- [ ] **65.** Fix `_WRITE_ACTIONS` duplicate action registry (`daemon.py` lines 544-553) — every mutating action name appears in both `ACTIONS` dict keys and `_WRITE_ACTIONS` set. Single source of truth needed.
+- [ ] **66.** Fix `_WRITE_ACTIONS` duplicate action registry (`daemon.py` lines 544-553) — every mutating action name appears in both `ACTIONS` dict keys and `_WRITE_ACTIONS` set. Single source of truth needed.
 
-- [ ] **66.** Consolidate telemetry file-reading boilerplate — `compute_usage_stats()` and `compute_dashboard_data()` both read the same JSONL file with identical open/parse/skip logic. Extract `_read_history(path) -> list[dict]` helper.
+- [ ] **67.** Consolidate telemetry file-reading boilerplate — `compute_usage_stats()` and `compute_dashboard_data()` both read the same JSONL file with identical open/parse/skip logic. Extract `_read_history(path) -> list[dict]` helper.
 
 ### Threading & Async
 
-- [ ] **67.** Fix thread accumulation in dashboard refreshes (`dashboard/__init__.py` lines 127-128) — spawns a `threading.Thread` per pane on every refresh interval (10s) with no pool or throttling. Unbounded thread growth if daemon is slow. Use `ThreadPoolExecutor` with bounded `max_workers`.
+- [ ] **68.** Fix thread accumulation in dashboard refreshes (`dashboard/__init__.py` lines 127-128) — spawns a `threading.Thread` per pane on every refresh interval (10s) with no pool or throttling. Unbounded thread growth if daemon is slow. Use `ThreadPoolExecutor` with bounded `max_workers`.
 
-- [ ] **68.** Switch from raw `threading.Thread` spawns to Textual Workers in TUI — `chat.py` lines 502/583, `dashboard/__init__.py`. Raw threads bypass Textual's worker lifecycle: can't be cancelled, don't participate in app shutdown, errors fly silently.
+- [ ] **69.** Switch from raw `threading.Thread` spawns to Textual Workers in TUI — `chat.py` lines 502/583, `dashboard/__init__.py`. Raw threads bypass Textual's worker lifecycle: can't be cancelled, don't participate in app shutdown, errors fly silently.
 
-- [ ] **69.** Fix temp-file subprocess IPC in `chat.py` `_run_grammar_fix` (lines 504-546) — creates 2 temp files per invocation, writes text to disk, spawns subprocess, reads output file, deletes both. Use `stdin=subprocess.PIPE` / `stdout=subprocess.PIPE` instead.
+- [ ] **70.** Fix temp-file subprocess IPC in `chat.py` `_run_grammar_fix` (lines 504-546) — creates 2 temp files per invocation, writes text to disk, spawns subprocess, reads output file, deletes both. Use `stdin=subprocess.PIPE` / `stdout=subprocess.PIPE` instead.
 
 ### Dead Code Removal
 
-- [ ] **70.** Remove `PERF_TO_PMODE` identity dict in `flm_server.py` line 22/168 — keys and values are identical, `perf_mode` is already validated. `pmode = perf_mode` produces the same result.
+- [ ] **71.** Remove `PERF_TO_PMODE` identity dict in `flm_server.py` line 22/168 — keys and values are identical, `perf_mode` is already validated. `pmode = perf_mode` produces the same result.
 
-- [ ] **71.** Remove dead code: `_xml_escape` in `daemon.py` (lines 409-411), dead `bench_status` in `benchmark.py` (lines 82-93), dead `_daemon_available` in `chat.py` (line 272), dead `chat_with_tools()` in `tools.py` (FastFlowLM 0.9.43 tool calling bug blocks it), `_trigger_bench` in `benchmark.py`.
+- [ ] **72.** Remove dead code: `_xml_escape` in `daemon.py` (lines 409-411), dead `bench_status` in `benchmark.py` (lines 82-93), dead `_daemon_available` in `chat.py` (line 272), dead `chat_with_tools()` in `tools.py` (FastFlowLM 0.9.43 tool calling bug blocks it), `_trigger_bench` in `benchmark.py`.
 
-- [ ] **72.** Remove/purge `subprocess_util.py` — `NO_WINDOW = 0` is dead code (Windows CRYPTO_NO_WINDOW), `popen_hidden()` is a no-op pass-through, `run_hidden()` just sets defaults nothing "hidden." Only 1 of 7 files that spawn subprocesses actually uses it.
+- [ ] **73.** Remove/purge `subprocess_util.py` — `NO_WINDOW = 0` is dead code (Windows CRYPTO_NO_WINDOW), `popen_hidden()` is a no-op pass-through, `run_hidden()` just sets defaults nothing "hidden." Only 1 of 7 files that spawn subprocesses actually uses it.
 
 ### Minor Cleanups
 
-- [ ] **73.** Fix manual BOM stripping (`daemon.py` line 621) — `raw_body[3:]` after `b"\xef\xbb\xbf"` check. Use `raw_body.decode("utf-8-sig")`.
+- [ ] **74.** Fix manual BOM stripping (`daemon.py` line 621) — `raw_body[3:]` after `b"\xef\xbb\xbf"` check. Use `raw_body.decode("utf-8-sig")`.
 
-- [ ] **74.** Fix manual URL parsing in `flm_server.py` `flm_host_port()` (lines 43-52) — replaces `http://` then `https://` in sequence, breaks with URLs containing paths/auth. Use `urllib.parse.urlparse` (already used correctly in `config.py`).
+- [ ] **75.** Fix manual URL parsing in `flm_server.py` `flm_host_port()` (lines 43-52) — replaces `http://` then `https://` in sequence, breaks with URLs containing paths/auth. Use `urllib.parse.urlparse` (already used correctly in `config.py`).
 
-- [ ] **75.** Fix `ss` output parsing fragility (`flm_server.py` lines 116-143) — `ss -tlnp` requires root for PIDs on modern systems; output format varies between busybox/iproute2. Add fallback or use `/proc` scanning.
+- [ ] **76.** Fix `ss` output parsing fragility (`flm_server.py` lines 116-143) — `ss -tlnp` requires root for PIDs on modern systems; output format varies between busybox/iproute2. Add fallback or use `/proc` scanning.
 
-- [ ] **76.** Fix daemon busy-wait main loop (`daemon.py` lines 737-738) — `handle_request()` with 1s timeout wake. Use `serve_forever()` on background thread with `server.shutdown()`.
+- [ ] **77.** Fix daemon busy-wait main loop (`daemon.py` lines 737-738) — `handle_request()` with 1s timeout wake. Use `serve_forever()` on background thread with `server.shutdown()`.
 
-- [ ] **77.** Fix `notify.xml_escape` reimplementing stdlib — use `xml.sax.saxutils.escape(s, {'"': "&quot;", "'": "&apos;"})` instead.
+- [ ] **78.** Fix `notify.xml_escape` reimplementing stdlib — use `xml.sax.saxutils.escape(s, {'"': "&quot;", "'": "&apos;"})` instead.
 
-- [ ] **78.** Fix `_percentile` in `telemetry.py` reimplementing stdlib — use `statistics.quantiles()` (Python 3.8+).
+- [ ] **79.** Fix `_percentile` in `telemetry.py` reimplementing stdlib — use `statistics.quantiles()` (Python 3.8+).
 
-- [ ] **79.** Fix `version_tuple` in `updater.py` — silently drops pre-release info (`"1.2.3-beta1"` → `(1,2,3)`). Use `packaging.version.Version`.
+- [ ] **80.** Fix `version_tuple` in `updater.py` — silently drops pre-release info (`"1.2.3-beta1"` → `(1,2,3)`). Use `packaging.version.Version`.
 
 ### Distribution
 
-- [ ] **80.** Add PyInstaller frozen-mode detection to `paths.py` — when `getattr(sys, 'frozen', False)` is set, treat as production layout (runtime data → `~/.local/share/Flowkey/`, not temp bundle dir).
+- [ ] **81.** Add PyInstaller frozen-mode detection to `paths.py` — when `getattr(sys, 'frozen', False)` is set, treat as production layout (runtime data → `~/.local/share/Flowkey/`, not temp bundle dir).
 
-- [ ] **81.** Consolidate 6 console_scripts into single `flowkey` binary with subcommands (`daemon`, `tui`, `listen`, `tray`, `install`, `process`).
+- [ ] **82.** Consolidate 6 console_scripts into single `flowkey` binary with subcommands (`daemon`, `tui`, `listen`, `tray`, `install`, `process`).
 
-- [ ] **82.** Replace pip-install distribution with PyInstaller-built binary — rewrite `install.sh` for curl-to-bash: detect arch, download GitHub release tarball, extract to PATH, run system setup (udev, groups, deps, desktop entry). Keep `--from-source` path for dev contributors.
+- [ ] **83.** Replace pip-install distribution with PyInstaller-built binary — rewrite `install.sh` for curl-to-bash: detect arch, download GitHub release tarball, extract to PATH, run system setup (udev, groups, deps, desktop entry). Keep `--from-source` path for dev contributors.
 
-- [ ] **83.** Set up GitHub Actions release workflow — on tag push, build PyInstaller binaries for x86_64 + aarch64, upload as release assets.
+- [ ] **84.** Set up GitHub Actions release workflow — on tag push, build PyInstaller binaries for x86_64 + aarch64, upload as release assets.

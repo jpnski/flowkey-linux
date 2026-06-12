@@ -33,7 +33,7 @@ def fresh_modules(isolated_release_root: Path):
     del isolated_release_root
     for name in [
         "paths",
-        "grammar_fix",
+        "engine",
         "daemon",
         "notes",
         "install",

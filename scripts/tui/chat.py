@@ -147,8 +147,8 @@ class MessageBubble(Horizontal):
                 widget.update(self._normalize_for_markdown(content))
             elif isinstance(widget, Static):
                 widget.update(self._rendered_content())
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not update bubble content: %s", exc)
 
     def finalize_stream(self) -> None:
         """Mark streaming as complete — no role label to update anymore."""
@@ -162,7 +162,8 @@ class MessageBubble(Horizontal):
             try:
                 pyperclip.copy(self._content)
                 self.app.notify("Copied", timeout=1.5)
-            except Exception:
+            except Exception as exc:
+                log.warning("copy failed: %s", exc)
                 self.app.notify("Copy failed", severity="error", timeout=2)
 
 
@@ -368,8 +369,8 @@ class ChatWidget(Container):
                 self._daemon_available = True
                 self._update_status(f"Model: {model_display}  |  Daemon: connected")
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("daemon config poll failed: %s", exc)
         self._daemon_available = False
         self._update_status("Daemon: not connected — config may be stale")
 
@@ -444,8 +445,8 @@ class ChatWidget(Container):
                     severity="warning", timeout=4,
                 )
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not check model restart status: %s", exc)
 
         # Check for slash commands
         if text.startswith("/"):
@@ -565,8 +566,8 @@ class ChatWidget(Container):
                     severity="warning", timeout=4,
                 )
                 return
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("model restart check failed: %s", exc)
         self._add_message("user", text)
         self._add_message("assistant", "…", is_streaming=True)
 
@@ -668,8 +669,8 @@ class ChatWidget(Container):
             error_body = ""
             try:
                 error_body = exc.read().decode("utf-8", errors="replace")[:200]
-            except Exception:
-                pass
+            except Exception as inner:
+                log.warning("could not decode error body: %s", inner)
             err_msg = f"[red]LLM HTTP {exc.code}: {error_body}[/]"
             self.call_later(self._finalize_stream, err_msg)
         except Exception as exc:
@@ -716,7 +717,7 @@ class ChatWidget(Container):
         # Update history with final content
         if self._history:
             last = self._history[-1]
-            if last["role"] in ("assistant", self._history[-1]["role"]):
+            if last["role"] == "assistant":
                 last["content"] = content
 
         messages = self.query_one("#chat-messages", VerticalScroll)
@@ -734,7 +735,8 @@ class ChatWidget(Container):
         import pyperclip
         try:
             return pyperclip.paste()
-        except Exception:
+        except Exception as exc:
+            log.debug("clipboard paste failed: %s", exc)
             return ""
 
     # ---- Mode prefix parsing (ported from listener.py) ----

@@ -7,7 +7,7 @@ import flm_server
 
 
 def _fake_run(stdout="", returncode=0, stderr="", capture=None):
-    """Return a run_hidden stand-in yielding a fixed CompletedProcess-like object."""
+    """Return a run_captured stand-in yielding a fixed CompletedProcess-like object."""
     def _run(argv, **kwargs):
         if capture is not None:
             capture["argv"] = list(argv)
@@ -40,7 +40,7 @@ SAMPLE = json.dumps({
 
 
 def test_installed_returns_only_installed_clean_names(monkeypatch):
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=SAMPLE))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=SAMPLE))
     out = flm_server.flm_list("installed", "qwen3.5:4b")
     assert out["models"] == ["qwen3.5:4b", "llama3.2:3b"]
     assert out["active"] == "qwen3.5:4b"
@@ -48,20 +48,20 @@ def test_installed_returns_only_installed_clean_names(monkeypatch):
 
 
 def test_not_installed_returns_only_not_installed(monkeypatch):
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=SAMPLE))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=SAMPLE))
     out = flm_server.flm_list("not-installed", "qwen3.5:4b")
     assert out["models"] == ["gpt-oss:20b", "phi4-mini-it:4b"]
 
 
 def test_all_returns_every_model(monkeypatch):
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=SAMPLE))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=SAMPLE))
     out = flm_server.flm_list("all", "x")
     assert out["models"] == ["qwen3.5:4b", "llama3.2:3b", "gpt-oss:20b", "phi4-mini-it:4b"]
 
 
 def test_uses_json_mode_not_quiet_text(monkeypatch):
     cap = {}
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=SAMPLE, capture=cap))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=SAMPLE, capture=cap))
     flm_server.flm_list("installed", "x")
     assert "--json" in cap["argv"]
     assert "--quiet" not in cap["argv"]
@@ -70,21 +70,21 @@ def test_uses_json_mode_not_quiet_text(monkeypatch):
 
 
 def test_tolerates_non_json_preamble(monkeypatch):
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout="loading models...\n" + SAMPLE))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout="loading models...\n" + SAMPLE))
     out = flm_server.flm_list("installed", "x")
     assert out["models"] == ["qwen3.5:4b", "llama3.2:3b"]
 
 
 def test_decorated_text_without_json_yields_error_not_bogus_models(monkeypatch):
     bad = "Models:\n  - qwen3.5:4b\n  No models found for the specified filter.\n"
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=bad))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=bad))
     out = flm_server.flm_list("installed", "x")
     assert out["models"] == []
     assert "could not parse" in (out.get("error") or "")
 
 
 def test_nonzero_exit_returns_error(monkeypatch):
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(returncode=1, stderr="boom"))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(returncode=1, stderr="boom"))
     out = flm_server.flm_list("installed", "x")
     assert out["models"] == []
     assert out["error"] == "boom"
@@ -93,7 +93,7 @@ def test_nonzero_exit_returns_error(monkeypatch):
 def test_missing_cli_returns_error(monkeypatch):
     def _raise(*_a, **_k):
         raise FileNotFoundError()
-    monkeypatch.setattr(flm_server, "run_hidden", _raise)
+    monkeypatch.setattr(flm_server, "run_captured", _raise)
     out = flm_server.flm_list("installed", "x")
     assert out["models"] == []
     assert "not found" in out["error"]
@@ -104,7 +104,7 @@ def test_bad_filter_rejected_before_subprocess(monkeypatch):
     def _run(*_a, **_k):
         called["n"] += 1
         return types.SimpleNamespace(returncode=0, stdout=SAMPLE, stderr="")
-    monkeypatch.setattr(flm_server, "run_hidden", _run)
+    monkeypatch.setattr(flm_server, "run_captured", _run)
     out = flm_server.flm_list("bogus", "x")
     assert "bad filter" in out["error"]
     assert called["n"] == 0  # rejected without shelling out
@@ -112,7 +112,7 @@ def test_bad_filter_rejected_before_subprocess(monkeypatch):
 
 def test_filters_embedding_and_asr_models_using_metadata(monkeypatch):
     """embed-gemma:300m and whisper-v3:turbo must never appear in any filter result."""
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=SAMPLE))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=SAMPLE))
 
     for kind in ("installed", "not-installed", "all"):
         out = flm_server.flm_list(kind, "x")
@@ -129,7 +129,7 @@ def test_falls_back_to_name_prefix_when_metadata_missing(monkeypatch):
             {"model": "whisper-xx:1b", "installed": True},
         ]
     })
-    monkeypatch.setattr(flm_server, "run_hidden", _fake_run(stdout=sparse))
+    monkeypatch.setattr(flm_server, "run_captured", _fake_run(stdout=sparse))
     out = flm_server.flm_list("installed", "x")
     assert out["models"] == ["qwen3.5:4b"]
 

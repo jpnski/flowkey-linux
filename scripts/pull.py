@@ -34,6 +34,7 @@ _job: dict = {
 }
 _thread: threading.Thread | None = None
 _proc: subprocess.Popen | None = None
+_reset_timer: threading.Timer | None = None
 _PCT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
 
 # Where `flm pull` stores downloaded model data.
@@ -56,9 +57,19 @@ def _reset_to_idle() -> None:
 
 
 def _schedule_reset(delay: float = 10.0) -> None:
+    global _reset_timer
+    _cancel_reset_timer()
     t = threading.Timer(delay, _reset_to_idle)
     t.daemon = True
+    _reset_timer = t
     t.start()
+
+
+def _cancel_reset_timer() -> None:
+    global _reset_timer
+    if _reset_timer is not None:
+        _reset_timer.cancel()
+        _reset_timer = None
 
 
 def status() -> dict:
@@ -86,7 +97,7 @@ def _default_runner(model: str, on_line: Callable[[str], None]) -> int:
     finally:
         with _lock:
             was_cancelled = _job.get("state") == "cancelled"
-        _proc = None
+            _proc = None
         if was_cancelled:
             return -1
 
@@ -184,6 +195,7 @@ def start_pull(model: str, *,
     model = str(model or "").strip()
     if not model:
         return {"ok": False, "error": "no model specified"}
+    _cancel_reset_timer()
     with _lock:
         if _job["state"] == "running":
             return {"ok": False, "error": "a pull is already running", "model": _job["model"]}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from textual.app import ComposeResult
 from textual.containers import Vertical
 
@@ -10,6 +12,9 @@ from tui.dashboard.config_pane.chat_settings import FlmServerPanel
 from tui.dashboard.config_pane.flm import FlmModelPanel
 from tui.dashboard.config_pane.hotkeys import HotkeysPanel
 from tui.dashboard.config_pane.input_processing import InputProcessingPanel
+
+
+log = logging.getLogger("flowkey.tui.dashboard")
 
 
 class ConfigPane(Pane):
@@ -98,14 +103,16 @@ class ConfigPane(Pane):
     def _update_hotkeys_panel(self, hotkeys: dict) -> None:
         try:
             panel = self.query_one(HotkeysPanel)
-        except Exception:
+        except Exception as exc:
+            log.warning("hotkeys panel not ready: %s", exc)
             return
         panel.update_hotkeys(hotkeys)
 
     def _update_input_processing_panel(self, cfg: dict) -> None:
         try:
             panel = self.query_one(InputProcessingPanel)
-        except Exception:
+        except Exception as exc:
+            log.warning("input processing panel not ready: %s", exc)
             return
         panel.update_config(cfg)
 
@@ -115,7 +122,8 @@ class ConfigPane(Pane):
                           flm_runtime_data: dict | None = None) -> None:
         try:
             panel = self.query_one(FlmModelPanel)
-        except Exception:
+        except Exception as exc:
+            log.warning("FLM model panel not ready: %s", exc)
             return
         if not daemon_reachable:
             panel.mark_daemon_down()
@@ -128,7 +136,8 @@ class ConfigPane(Pane):
     def _update_server_panel(self, server_cfg: dict) -> None:
         try:
             panel = self.query_one(FlmServerPanel)
-        except Exception:
+        except Exception as exc:
+            log.warning("server panel not ready: %s", exc)
             return
         panel.update_server_settings(
             auto_start=bool(server_cfg.get("auto_start", True)),
@@ -139,6 +148,7 @@ class ConfigPane(Pane):
     def _update_chat_panel(self, chat_cfg: dict) -> None:
         try:
             panel = self.query_one(ChatPanel)
-        except Exception:
+        except Exception as exc:
+            log.warning("chat panel not ready: %s", exc)
             return
         panel.update_config(chat_cfg)

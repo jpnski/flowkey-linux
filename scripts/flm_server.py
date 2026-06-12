@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from subprocess_util import run_hidden
+from subprocess_util import run_captured
 
 log = logging.getLogger("flowkey.flmserver")
 
@@ -119,7 +119,7 @@ def find_pids_on_port(port: int) -> list[int]:
     Returns sorted list of unique PIDs. On error returns [].
     """
     try:
-        result = run_hidden(["ss", "-tlnp"], timeout=5)
+        result = run_captured(["ss", "-tlnp"], timeout=5)
     except FileNotFoundError:
         log.warning("ss not found; cannot scan for port %d", port)
         return []
@@ -288,7 +288,7 @@ def flm_list(filter_kind: str, model: str) -> dict:
     if filter_kind not in {"installed", "not-installed", "all"}:
         return {"error": f"bad filter: {filter_kind}", "models": [], "active": model}
     try:
-        result = run_hidden(
+        result = run_captured(
             ["flm", "list", "--json"],
             timeout=15,
             encoding="utf-8",
@@ -327,7 +327,7 @@ def flm_list(filter_kind: str, model: str) -> dict:
 def flm_version() -> str:
     """Return the installed flm version string (e.g. '0.9.43'), or '' if unknown."""
     try:
-        result = run_hidden(
+        result = run_captured(
             ["flm", "version", "--json"],
             timeout=10,
             encoding="utf-8",

@@ -45,7 +45,8 @@ def compute_usage_stats(history_path: Path) -> dict:
                         continue
                     try:
                         row = json.loads(raw)
-                    except Exception:
+                    except Exception as exc:
+                        log.debug("skipping unparseable history row: %s", exc)
                         continue
                     total += 1
                     mode = str(row.get("mode") or "unknown")
@@ -62,8 +63,8 @@ def compute_usage_stats(history_path: Path) -> dict:
                         total_prompt += int(prompt_tokens)
                     if isinstance(completion_tokens, (int, float)):
                         total_completion += int(completion_tokens)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not read usage history: %s", exc)
     avg_latency = round(sum(latencies) / len(latencies), 3) if latencies else 0.0
     avg_tok_per_sec = round(sum(tok_speeds) / len(tok_speeds), 2) if tok_speeds else 0.0
     return {
@@ -92,9 +93,11 @@ def compute_dashboard_data(history_path: Path) -> dict:
                         continue
                     try:
                         rows.append(json.loads(raw))
-                    except Exception:
+                    except Exception as exc:
+                        log.debug("skipping unparseable dashboard row: %s", exc)
                         continue
-        except Exception:
+        except Exception as exc:
+            log.warning("could not read dashboard history: %s", exc)
             rows = []
         for row in rows[-50:]:
             elapsed = row.get("elapsed_seconds")
@@ -107,8 +110,8 @@ def compute_dashboard_data(history_path: Path) -> dict:
                     hour = int(timestamp[11:13])
                     if 0 <= hour < 24:
                         hour_buckets[hour] += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.debug("could not parse hour from timestamp: %s", exc)
     return {
         "latencies_recent": latencies_recent,
         "hour_buckets": hour_buckets,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -11,6 +12,8 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Static
 
 from tui.dashboard._daemon import _daemon_post
+
+log = logging.getLogger("flowkey.tui.dashboard")
 
 _CHAT_DEFAULTS: dict[str, float] = {
     "temperature": 0.3,
@@ -159,16 +162,16 @@ class ChatPanel(Vertical):
         """Push instance values back into the Input widgets."""
         try:
             self.query_one("#chat-temperature", Input).value = f"{self._temperature:.1f}"
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not sync temperature input: %s", exc)
         try:
             self.query_one("#chat-max-tokens", Input).value = str(self._max_tokens)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not sync max-tokens input: %s", exc)
         try:
             self.query_one("#chat-context-turns", Input).value = str(self._context_turns)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not sync context-turns input: %s", exc)
 
     # ---- Value helpers ----
 
@@ -260,8 +263,8 @@ class ChatPanel(Vertical):
                 w.value = f"{default:.1f}"
             else:
                 w.value = str(int(default))
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not reset field %s: %s", field, exc)
         if field == "temperature":
             self._temperature = default
         elif field == "max_tokens":

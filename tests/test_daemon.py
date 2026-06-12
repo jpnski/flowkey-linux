@@ -88,16 +88,6 @@ def test_err_envelope_shape(daemon_module):
     assert result == {"ok": False, "result": None, "error": "broken", "elapsed_ms": 12.35}
 
 
-def test_xml_escape_neutralizes_injection(daemon_module):
-    # Toast text must not be able to break out of the single-quoted PowerShell
-    # here-string in _show_toast_async: apostrophe + newline are the escape risks.
-    out = daemon_module._xml_escape("a'@\n<b>&\"x")
-    assert "'" not in out
-    assert "\n" not in out
-    assert "<" not in out and ">" not in out
-    assert "&apos;" in out and "&lt;" in out and "&quot;" in out
-
-
 def test_healthz_reports_actions(daemon_server):
     daemon_module, base_url = daemon_server
 
@@ -105,7 +95,7 @@ def test_healthz_reports_actions(daemon_server):
 
     assert status == 200
     assert payload["ok"] is True
-    assert payload["version"] == daemon_module.grammar_fix.APP_VERSION
+    assert payload["version"] == daemon_module.engine.APP_VERSION
     assert "version" in payload["actions"]
 
 
@@ -136,7 +126,7 @@ def test_post_version_returns_app_version(daemon_server):
 
     assert status == 200
     assert payload["ok"] is True
-    assert payload["result"] == daemon_module.grammar_fix.APP_VERSION
+    assert payload["result"] == daemon_module.engine.APP_VERSION
 
 
 def test_post_stats_returns_expected_shape(daemon_server):
@@ -193,7 +183,7 @@ def test_apply_config_patch_persists_nested_value(daemon_server):
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
-    saved = json.loads(daemon_module.grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
+    saved = json.loads(daemon_module.engine.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
     assert payload["result"] == "ok"
     assert saved["flm_serving_config"]["auto_start"] is False
@@ -202,22 +192,22 @@ def test_apply_config_patch_persists_nested_value(daemon_server):
 def test_apply_config_patch_model_change_validates_and_persists(daemon_server, monkeypatch):
     daemon_module, base_url = daemon_server
     monkeypatch.setattr(
-        daemon_module.grammar_fix,
+        daemon_module.engine,
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b", "other:1b"], "active": "qwen3.5:4b"},
     )
-    monkeypatch.setattr(daemon_module.grammar_fix, "_warmup_request", lambda model: None)
-    monkeypatch.setattr(daemon_module.grammar_fix, "stop_flm_server", lambda force=True: True)
-    monkeypatch.setattr(daemon_module.grammar_fix, "start_flm_server", lambda force_restart=False: "started")
+    monkeypatch.setattr(daemon_module.engine, "_warmup_request", lambda model: None)
+    monkeypatch.setattr(daemon_module.engine, "stop_flm_server", lambda force=True: True)
+    monkeypatch.setattr(daemon_module.engine, "start_flm_server", lambda force_restart=False: "started")
     body = json.dumps({"args": {"patch": {"flm_config": {"active_model": "other:1b"}}}}).encode("utf-8")
 
     status, payload = _read_json(base_url + "/action/apply_config_patch", method="POST", body=body)
 
-    saved = json.loads(daemon_module.grammar_fix.CONFIG_PATH.read_text(encoding="utf-8"))
+    saved = json.loads(daemon_module.engine.CONFIG_PATH.read_text(encoding="utf-8"))
     assert status == 200
     assert payload["result"] == "model=other:1b restarted"
     assert saved["flm_config"]["active_model"] == "other:1b"
-    assert daemon_module.grammar_fix.FLM_MODEL == "other:1b"
+    assert daemon_module.engine.FLM_MODEL == "other:1b"
 
 
 def test_apply_config_patch_supports_file_argument(daemon_server, tmp_path):
@@ -285,7 +275,7 @@ def test_shutdown_action_sets_event(daemon_server):
 def test_models_list_can_be_stubbed_via_action(daemon_server, monkeypatch):
     daemon_module, base_url = daemon_server
     monkeypatch.setattr(
-        daemon_module.grammar_fix,
+        daemon_module.engine,
         "list_flm_models",
         lambda: {"models": ["qwen3.5:4b"], "active": "qwen3.5:4b"},
     )

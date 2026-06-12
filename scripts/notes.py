@@ -39,7 +39,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-import grammar_fix
+import engine
 
 log = logging.getLogger("flowkey.notes")
 
@@ -59,7 +59,7 @@ URL_RE = re.compile(r"^\s*(https?://\S+)\s*$")
 # ---------- Config helpers ---------------------------------------------------
 
 def _notes_cfg() -> dict:
-    cfg = grammar_fix.load_config()
+    cfg = engine.load_config()
     return cfg.get("notes") or {}
 
 
@@ -189,8 +189,8 @@ def _extract_html(html: str) -> tuple[str, str]:
         meta = trafilatura.extract_metadata(html)
         if meta and getattr(meta, "title", None):
             title = str(meta.title)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("trafilatura extraction failed: %s", exc)
     if not body or not title:
         parser = _TextExtractor()
         try:
@@ -210,7 +210,7 @@ def _fetch_url(url: str) -> dict:
     out: dict = {"ok": False, "title": "", "body": "", "url": url}
     try:
         req = urllib.request.Request(url, headers={
-            "User-Agent": f"Flowkey/{grammar_fix.APP_VERSION}",
+            "User-Agent": f"Flowkey/{engine.APP_VERSION}",
             "Accept": "text/html,application/xhtml+xml",
         })
         with urllib.request.urlopen(req, timeout=_fetch_timeout()) as resp:
@@ -251,7 +251,8 @@ def _slug_tokens_from_url(url: str) -> list[str]:
                 if t and t not in {"www", "com", "org", "net", "io", "co", "html", "htm", "php"}
                 and not t.isdigit() and len(t) <= 40]
         return toks[:20]
-    except Exception:
+    except Exception as exc:
+        log.debug("URL token extraction failed: %s", exc)
         return []
 
 
@@ -301,9 +302,9 @@ def _llm_categorize(text: str, source_app: str, url: str,
         "Never add commentary, Markdown fences, or explanations."
     )
     try:
-        raw, _model = grammar_fix._call_flm_api(
-            grammar_fix.FLM_MODEL, system_prompt, user_content,
-            max_tokens=400, timeout_seconds=grammar_fix.FLM_TIMEOUT_SECONDS,
+        raw, _model = engine._call_flm_api(
+            engine.FLM_MODEL, system_prompt, user_content,
+            max_tokens=400, timeout_seconds=engine.FLM_TIMEOUT_SECONDS,
         )
     except Exception as e:
         log.warning("categorize LLM call failed: %s", e)
@@ -348,7 +349,8 @@ def _parse_categorize_json(raw: str) -> dict | None:
     try:
         obj = json.loads(s)
         return obj if isinstance(obj, dict) else None
-    except Exception:
+    except Exception as exc:
+        log.debug("LLM JSON response parse failed: %s", exc)
         # Best-effort recovery: extract first balanced object
         m = re.search(r"\{[\s\S]*\}", s)
         if not m:
@@ -356,6 +358,7 @@ def _parse_categorize_json(raw: str) -> dict | None:
         try:
             return json.loads(m.group(0))
         except Exception:
+            log.debug("fallback JSON extraction also failed")
             return None
 
 
@@ -417,7 +420,8 @@ def search_notes(query: str, limit: int = 5) -> dict:
     for path in vault.rglob("*.md"):
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            log.debug("could not read note file %s: %s", path, exc)
             continue
         title, body = _split_frontmatter_title(text)
         title_l, body_l = title.lower(), body.lower()
@@ -608,8 +612,8 @@ def _categorize_in_background(stub_path: Path, note_id: str, text: str,
         if stub_path.exists() and stub_path.resolve() != final_path.resolve():
             try:
                 stub_path.unlink()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not remove stub note: %s", exc)
 
         # Toast result.
         if target_category == INBOX:
@@ -626,7 +630,8 @@ def _read_frontmatter_field(path: Path, key: str) -> str:
     """Cheap regex-based YAML scalar reader, no PyYAML dep."""
     try:
         raw = path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as exc:
+        log.debug("could not read frontmatter file %s: %s", path, exc)
         return ""
     m = re.search(rf'^{re.escape(key)}:\s*"?([^"\n]*)"?\s*$', raw, re.MULTILINE)
     return (m.group(1).strip() if m else "")

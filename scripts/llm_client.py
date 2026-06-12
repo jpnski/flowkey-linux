@@ -139,7 +139,7 @@ def word_overlap_ratio(a: str, b: str) -> float:
 
 
 def is_weak_prompt_echo(input_text: str, output_text: str) -> bool:
-    """True when the model only grammar-fixed or prefixed with 'Prompt:' instead of expanding."""
+    """True when the model only engine-processed or prefixed with 'Prompt:' instead of expanding."""
     out = str(output_text or "").strip()
     inp = str(input_text or "").strip()
     if not out or not inp:
@@ -221,8 +221,10 @@ def dict_restore(text: str, mapping: dict[str, str]) -> str:
     if not mapping or not text:
         return text
     restored = text
-    for placeholder, original in mapping.items():
-        restored = restored.replace(placeholder, original)
+    # Replace longest placeholders first so __FFPDICT10__ isn't
+    # corrupted by a partial match on __FFPDICT1__.
+    for placeholder in sorted(mapping, key=len, reverse=True):
+        restored = restored.replace(placeholder, mapping[placeholder])
     return restored
 
 

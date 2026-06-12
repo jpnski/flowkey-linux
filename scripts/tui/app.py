@@ -171,8 +171,8 @@ class FlowkeyTUI(App):
             saved = cfg.get("theme")
             if saved and isinstance(saved, str):
                 self.theme = saved
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not load theme config: %s", exc)
         self._theme_ready = True
 
         self.push_screen("main")
@@ -203,8 +203,8 @@ class FlowkeyTUI(App):
             cfg = _config.load_config(_paths.CONFIG_FILE)
             cfg["theme"] = theme
             _config.save_config(_paths.CONFIG_FILE, cfg)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not save theme config: %s", exc)
 
     def _watch_parent(self, parent_pid: int) -> None:
         """Exit when parent process disappears."""
@@ -276,6 +276,11 @@ def main() -> int:
     # Suppress expected daemon-connection warnings — dashboard polls
     # periodically and "connection refused" is normal when daemon is off.
     logging.getLogger("flowkey.http").setLevel(logging.ERROR)
+
+    # Prevent flowkey.* log messages from printing to stderr (overlays the
+    # TUI). The daemon process handles its own logging; the TUI should not
+    # echo those messages to the terminal where the TUI runs.
+    logging.getLogger("flowkey").propagate = False
 
     # Read ingest payload from file if provided
     ingest_text = ""

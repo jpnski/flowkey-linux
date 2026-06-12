@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
         "power_mode": "balanced",
         "auto_start": True,
         "startup_timeout_s": 25,
+        "pull_timeout_seconds": 900,
         "log_to_file": False,
         "log_file": "flm_server.log",
         "extra_args": [],

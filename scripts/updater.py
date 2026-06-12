@@ -107,8 +107,8 @@ def apply_update(app_version: str, tool_dir: Path, feed_url: str | None = None) 
         release_root.rename(backup)
         try:
             shutil.move(str(candidate), str(release_root))
-        except Exception:
-            log.warning("update swap failed; rolling back from backup %s", backup.name)
+        except Exception as exc:
+            log.warning("update swap failed (%s); rolling back from backup %s", exc, backup.name)
             if release_root.exists():
                 shutil.rmtree(release_root, ignore_errors=True)
             backup.rename(release_root)

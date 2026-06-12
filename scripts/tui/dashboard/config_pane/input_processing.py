@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import partial
 from typing import Any
 
@@ -12,6 +13,8 @@ from textual.events import Click
 from textual.widgets import Input, RadioButton, RadioSet, Static
 
 from tui.dashboard._daemon import _daemon_post
+
+log = logging.getLogger("flowkey.tui.dashboard")
 
 # (label, config_key, min_value, default, max_value)
 _PARAMS: list[tuple[str, str, int, int, int]] = [
@@ -120,8 +123,8 @@ class InputProcessingPanel(Vertical):
                 try:
                     inp = self.query_one(f"#ip-{key}", Input)
                     inp.value = str(val)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("could not sync input %s: %s", key, exc)
 
     def update_input_processing(self, enabled: bool) -> None:
         """Set the input-processing radio set to match the current config value.
@@ -132,8 +135,8 @@ class InputProcessingPanel(Vertical):
         try:
             target_id = "input-processing-enabled" if enabled else "input-processing-disabled"
             self.query_one(f"#{target_id}", RadioButton).value = True
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not set input-processing radio: %s", exc)
 
     # ---- Event handlers ----
 
@@ -195,7 +198,8 @@ class InputProcessingPanel(Vertical):
         try:
             inp = self.query_one(f"#ip-{key}", Input)
             inp.value = str(default)
-        except Exception:
+        except Exception as exc:
+            log.warning("could not reset input %s: %s", key, exc)
             return
         self._values[key] = default
 
@@ -236,16 +240,16 @@ class InputProcessingPanel(Vertical):
             try:
                 from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not refresh dashboard after apply: %s", exc)
         else:
             # Revert on failure.
             self._values[key] = old_val
             try:
                 inp = self.query_one(f"#ip-{key}", Input)
                 inp.value = str(old_val) if old_val is not None else ""
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not revert input %s after error: %s", key, exc)
             self.app.notify(
                 f"Failed to update: {resp.get('error', 'unknown')}",
                 severity="error", timeout=5,
@@ -267,8 +271,8 @@ class InputProcessingPanel(Vertical):
             try:
                 from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not refresh dashboard after toggle: %s", exc)
         else:
             self._input_processing_enabled = old_enabled
             self.app.notify(
@@ -279,5 +283,5 @@ class InputProcessingPanel(Vertical):
             try:
                 target_id = "input-processing-enabled" if old_enabled else "input-processing-disabled"
                 self.query_one(f"#{target_id}", RadioButton).value = True
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not revert input-processing radio: %s", exc)

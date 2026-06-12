@@ -25,7 +25,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-import actions as _actions
+import daemon as _daemon
 import paths as _paths
 import pyperclip
 
@@ -257,7 +257,7 @@ def dispatch_action(action: str, body_json: str = "{}") -> str:
         log.debug("daemon dispatch %s failed: %s — trying subprocess", action, exc)
 
     # Fallback: subprocess (read-only actions only)
-    if action in _actions.READ_ONLY_SUBPROCESS_ACTIONS:
+    if action in _daemon.READ_ONLY_SUBPROCESS_ACTIONS:
         try:
             result = subprocess.run(
                 ["flowkey-grammar-fix", "--app-action", action],
@@ -400,8 +400,8 @@ def clipboard_capture() -> str:
     # Clear clipboard so we can detect fresh copy
     try:
         pyperclip.copy("")
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("could not clear clipboard: %s", exc)
 
     # Simulate Ctrl+C
     _simulate_copy()
@@ -604,7 +604,7 @@ def _get_grammar_fix_argv() -> list[str]:
         return [which]
     # Fallback: run from source tree
     here = Path(__file__).resolve().parent
-    gf = here / "grammar_fix.py"
+    gf = here / "engine.py"
     if gf.exists():
         return [sys.executable, str(gf)]
     return ["flowkey-grammar-fix"]
@@ -1002,7 +1002,8 @@ def clipboard_watcher() -> None:
         # Read clipboard
         try:
             text = pyperclip.paste()
-        except Exception:
+        except Exception as exc:
+            log.debug("clipboard paste failed: %s", exc)
             _shutdown_event.wait(1.0)
             continue
 
@@ -1280,8 +1281,7 @@ def _shortcut_to_evdev(shortcut: str) -> set[int]:
             else:
                 break
         key_char = raw[i:] if i < len(raw) else ""
-
-    key_char = shortcut[i:].upper() if i < len(shortcut) else ""
+        key_char = shortcut[i:].upper() if i < len(shortcut) else ""
     if key_char and len(key_char) == 1 and "A" <= key_char <= "Z":
         key_attr = f"KEY_{key_char}"
         code = getattr(ecodes, key_attr, None)
@@ -1462,8 +1462,8 @@ def _unregister_hotkeys() -> None:
     if _pynput_listener is not None:
         try:
             _pynput_listener.stop()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not stop pynput listener: %s", exc)
         _pynput_listener = None
         log.info("pynput listener stopped")
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import partial
 from typing import Any
 
@@ -12,6 +13,8 @@ from textual.events import Click
 from textual.widgets import Input, Static
 
 from tui.dashboard._daemon import _daemon_post
+
+log = logging.getLogger("flowkey.tui.dashboard")
 
 # (label, config_key)
 _HOTKEY_ACTIONS: list[tuple[str, str]] = [
@@ -170,8 +173,8 @@ class HotkeysPanel(Vertical):
                 self.query_one(f"#hk-{action}-mod2", Static).update(mod2)
                 inp = self.query_one(f"#hk-{action}-letter", Input)
                 inp.value = letter
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not update hotkey display for %s: %s", action, exc)
 
     # ---- Event handlers ----
 
@@ -198,8 +201,8 @@ class HotkeysPanel(Vertical):
 
         try:
             event.widget.update(new_mod)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not update hotkey widget: %s", exc)
 
         # Persist with correct old value for revert-on-failure.
         hotkey_str = _format_hotkey(mod1, mod2, letter)
@@ -257,8 +260,8 @@ class HotkeysPanel(Vertical):
             try:
                 from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not refresh dashboard after hotkey save: %s", exc)
         else:
             mod1, mod2, letter = _parse_hotkey(old_hotkey)
             self._values[action] = (mod1, mod2, letter)
@@ -267,8 +270,8 @@ class HotkeysPanel(Vertical):
                 self.query_one(f"#hk-{action}-mod2", Static).update(mod2)
                 inp = self.query_one(f"#hk-{action}-letter", Input)
                 inp.value = letter
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not revert hotkey display after error: %s", exc)
             self.app.notify(
                 f"Failed to update: {resp.get('error', 'unknown')}",
                 severity="error", timeout=5,

@@ -16,7 +16,6 @@ import time
 import urllib.request
 from pathlib import Path
 
-import actions
 import flm_server
 import llm_client
 import paths as _paths
@@ -31,7 +30,7 @@ try:
     from importlib.metadata import version as _pkg_version
     APP_VERSION = _pkg_version("flowkey")
 except Exception:
-    APP_VERSION = "0.0.0"
+    APP_VERSION = "0.0.0"  # dev/uninstalled fallback; logger not available yet
 
 # Run a one-time migration of pre-v1.2.0 layouts (files under scripts/) into
 # the new folders. Idempotent + cheap — does nothing if everything's already
@@ -381,12 +380,12 @@ def _call_flm_api(
     usage = payload.get("usage") or {}
     try:
         _USAGE_ACC["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("could not account prompt tokens: %s", exc)
     try:
         _USAGE_ACC["completion_tokens"] += int(usage.get("completion_tokens") or 0)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.debug("could not account completion tokens: %s", exc)
     return text, str(payload.get("model") or model)
 
 
@@ -506,7 +505,8 @@ def run_doctor() -> str:
                 vdata = json.loads(val.stdout)
                 summary = ", ".join(f"{k}={v}" for k, v in vdata.items() if not isinstance(v, (dict, list)))
                 checks.append(("flm_validate", summary or "ok"))
-            except Exception:
+            except Exception as exc:
+                log.debug("could not parse flm validate output: %s", exc)
                 checks.append(("flm_validate", val.stdout.strip()[:160]))
         else:
             checks.append(("flm_validate", (val.stderr or val.stdout or "non-zero exit").strip()[:160]))
@@ -553,6 +553,7 @@ def apply_config_patch(patch: dict) -> str:
         return "ok"
 
     old_model = FLM_MODEL
+    old_log_to_file = SERVER_LOG_TO_FILE
     cfg = load_config()
     _deep_merge(cfg, filtered)
 
@@ -603,6 +604,12 @@ def apply_config_patch(patch: dict) -> str:
             log.info("model %s unchanged but server not running — starting", FLM_MODEL)
             _do_server_start_and_warmup(FLM_MODEL)
             return f"model={FLM_MODEL} started"
+
+    if flm_patch and "log_to_file" in flm_patch:
+        if SERVER_LOG_TO_FILE != old_log_to_file and is_flm_server_reachable():
+            stop_flm_server(force=True)
+            _do_server_start_and_warmup(FLM_MODEL)
+            return f"logging={'on' if SERVER_LOG_TO_FILE else 'off'} — restarted"
 
     return "ok"
 
@@ -836,11 +843,13 @@ def handle_server_cli() -> bool:
             if not model_name:
                 raise RuntimeError("Model name is empty.")
             try:
+                _cfg = load_config()
+                _pull_timeout = int(_cfg.get("flm_server", {}).get("pull_timeout_seconds", 900))
                 result = subprocess.run(
                     ["flm", "pull", model_name],
                     capture_output=True,
                     text=True,
-                    timeout=actions.PULL_MODEL_TIMEOUT_SECONDS,
+                    timeout=_pull_timeout,
                     check=False,
                 )
             except FileNotFoundError:

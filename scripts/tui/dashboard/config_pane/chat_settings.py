@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from functools import partial
 from typing import Any
 
@@ -11,6 +12,8 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import RadioButton, RadioSet, Static
 
 from tui.dashboard._daemon import _daemon_post
+
+log = logging.getLogger("flowkey.tui.dashboard")
 
 
 class FlmServerPanel(Vertical):
@@ -84,18 +87,18 @@ class FlmServerPanel(Vertical):
         try:
             target_id = "auto-start-on" if auto_start else "auto-start-off"
             self.query_one(f"#{target_id}", RadioButton).value = True
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not set auto-start radio: %s", exc)
         try:
             pm = power_mode if power_mode in {"powersaver", "balanced", "performance", "turbo"} else "balanced"
             self.query_one(f"#{pm}", RadioButton).value = True
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not set power-mode radio: %s", exc)
         try:
             target_id = "log-to-file-on" if log_to_file else "log-to-file-off"
             self.query_one(f"#{target_id}", RadioButton).value = True
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not set log-to-file radio: %s", exc)
 
     # ---- Event handlers ----
 
@@ -171,8 +174,8 @@ class FlmServerPanel(Vertical):
             try:
                 from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not refresh dashboard after server update: %s", exc)
         else:
             self._auto_start = old_auto_start
             self._power_mode = old_perf

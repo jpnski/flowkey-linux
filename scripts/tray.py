@@ -234,7 +234,8 @@ def _notify(title: str, message: str) -> None:
             headers=loopback_http.daemon_headers(),
             timeout=2.0,
         )
-    except Exception:
+    except Exception as exc:
+        log.debug("daemon notify failed, falling back to notify-send: %s", exc)
         # Fallback: direct notify-send
         try:
             subprocess.Popen(

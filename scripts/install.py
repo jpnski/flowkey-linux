@@ -78,7 +78,8 @@ def _check_groups() -> list[str]:
         result = subprocess.run(["groups"], capture_output=True, text=True, check=False)
         user_groups = set(result.stdout.strip().split())
     except Exception:
-        return REQUIRED_GROUPS  # can't check — assume missing
+        # can't check — assume all groups missing (installer will prompt)
+        return REQUIRED_GROUPS
     return [g for g in REQUIRED_GROUPS if g not in user_groups]
 
 
@@ -135,7 +136,7 @@ def _model_installed(name: str) -> bool:
             capture_output=True, text=True, timeout=15, check=False,
         )
     except Exception:
-        return False
+        return False  # flm CLI unavailable — treat model as not installed
     try:
         data = json.loads(result.stdout)
         for model in data.get("models") or []:

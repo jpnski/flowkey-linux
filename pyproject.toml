@@ -65,7 +65,7 @@ Issues = "https://github.com/jpnski/flowkey-linux/issues"
 
 [project.scripts]
 flowkey-daemon = "daemon:main"
-flowkey-grammar-fix = "grammar_fix:main"
+flowkey-grammar-fix = "engine:main"
 flowkey-install = "install:main"
 flowkey-listener = "listener:main"
 flowkey-tray = "tray:main"
@@ -76,12 +76,11 @@ include-package-data = true
 package-dir = { "" = "scripts" }
 packages = { find = { where = ["scripts"], include = ["tui*"] } }
 py-modules = [
-    "actions",
+    "daemon",
     "benchmark",
     "config",
-    "daemon",
     "flm_server",
-    "grammar_fix",
+    "engine",
     "install",
     "listener",
     "llm_client",

@@ -1,7 +1,7 @@
 """Flowkey long-running HTTP action daemon (Linux).
 
 Listens on http://127.0.0.1:52650. The dashboard and listener post JSON to
-/action/<name> and get JSON back. Imports `grammar_fix` once at startup so
+/action/<name> and get JSON back. Imports `engine` once at startup so
 per-call cost is just IPC + the action body — typically 5–20 ms.
 
 Lifecycle:
@@ -32,18 +32,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import config
+import engine
+import notify
 import paths as _paths
 
 HERE = Path(__file__).resolve().parent
-
-# Make `import grammar_fix` work whether we're run as a script or via entry point.
-if str(HERE) not in sys.path:
-    sys.path.insert(0, str(HERE))
-
-import grammar_fix  # noqa: E402
-import notify  # noqa: E402
-
-import config  # noqa: E402
 
 
 def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -55,7 +49,7 @@ def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedP
     try:
         result = subprocess.run(argv, **kwargs)
         elapsed_ms = (time.time() - start) * 1000.0
-        log.info("spawn name=%s argv=%s exit=%d elapsed_ms=%.1f",
+        log.debug("spawn name=%s argv=%s exit=%d elapsed_ms=%.1f",
                  name, argv[0:1] + ["…"] if len(argv) > 2 else argv,
                  result.returncode, elapsed_ms)
         return result
@@ -119,7 +113,7 @@ def _err(message: str, elapsed_ms: float) -> dict:
 
 
 def _act_status(_args: dict) -> str:
-    return grammar_fix.server_status()
+    return engine.server_status()
 
 
 # ---- Autostart toggle (XDG autostart .desktop file) ---------------------------
@@ -145,7 +139,11 @@ def _act_set_autostart(args: dict) -> dict:
 
     args.enabled (bool) — True to add, False to remove.
     """
-    enabled = bool(args.get("enabled"))
+    raw = args.get("enabled")
+    if isinstance(raw, bool):
+        enabled = raw
+    else:
+        enabled = str(raw or "").lower() in ("1", "true", "yes")
     path = _autostart_desktop_path()
 
     if enabled:
@@ -154,7 +152,7 @@ def _act_set_autostart(args: dict) -> dict:
             "Type=Application\n"
             "Name=Flowkey Listener\n"
             "Comment=Flowkey global hotkey listener\n"
-            f"Exec=flowkey-listener --parent-pid {os.getpid()}\n"
+            "Exec=flowkey-listener\n"
             "Terminal=false\n"
             "X-GNOME-Autostart-enabled=true\n"
         )
@@ -176,103 +174,103 @@ def _act_set_autostart(args: dict) -> dict:
 
 
 def _act_start(_args: dict) -> str:
-    return grammar_fix.start_flm_server(force_restart=False)
+    return engine.start_flm_server(force_restart=False)
 
 
 def _act_warmup(_args: dict) -> str:
-    grammar_fix.start_flm_server(force_restart=False)
-    grammar_fix._warmup_request(grammar_fix.FLM_MODEL)
+    engine.start_flm_server(force_restart=False)
+    engine._warmup_request(engine.FLM_MODEL)
     return "warmed_up"
 
 
 def _act_restart(_args: dict) -> str:
-    return grammar_fix.start_flm_server(force_restart=True)
+    return engine.start_flm_server(force_restart=True)
 
 
 def _act_stop(_args: dict) -> str:
-    return "stopped" if grammar_fix.stop_flm_server(force=True) else "not_running"
+    return "stopped" if engine.stop_flm_server(force=True) else "not_running"
 
 
 def _act_power_mode(_args: dict) -> str:
-    return grammar_fix.get_power_mode()
+    return engine.get_power_mode()
 
 
 def _act_toggle_power_mode(_args: dict) -> str:
-    return grammar_fix.toggle_power_mode()
+    return engine.toggle_power_mode()
 
 
 def _act_set_power_balanced(_args: dict) -> str:
-    return grammar_fix.set_power_mode("balanced")
+    return engine.set_power_mode("balanced")
 
 
 def _act_set_power_turbo(_args: dict) -> str:
-    return grammar_fix.set_power_mode("turbo")
+    return engine.set_power_mode("turbo")
 
 
 def _act_set_power_performance(_args: dict) -> str:
-    return grammar_fix.set_power_mode("performance")
+    return engine.set_power_mode("performance")
 
 
 def _act_set_power_powersaver(_args: dict) -> str:
-    return grammar_fix.set_power_mode("powersaver")
+    return engine.set_power_mode("powersaver")
 
 
 def _act_history_text_status(_args: dict) -> str:
-    return grammar_fix.get_history_text_mode()
+    return engine.get_history_text_mode()
 
 
 def _act_toggle_history_text(_args: dict) -> str:
-    return grammar_fix.toggle_history_text_mode()
+    return engine.toggle_history_text_mode()
 
 
 def _act_set_history_visible(_args: dict) -> str:
-    return grammar_fix.set_history_text_mode("visible")
+    return engine.set_history_text_mode("visible")
 
 
 def _act_set_history_redacted(_args: dict) -> str:
-    return grammar_fix.set_history_text_mode("redacted")
+    return engine.set_history_text_mode("redacted")
 
 
 def _act_tone_preset(_args: dict) -> str:
-    return grammar_fix.get_tone_preset()
+    return engine.get_tone_preset()
 
 
 def _act_cycle_tone_preset(_args: dict) -> str:
-    return grammar_fix.cycle_tone_preset()
+    return engine.cycle_tone_preset()
 
 
 def _act_set_tone(args: dict) -> str:
     preset = str(args.get("preset", "")).strip().lower()
     if preset not in {"formal", "casual", "friendly"}:
         raise ValueError(f"unknown tone preset: {preset!r}")
-    cfg = grammar_fix.load_config()
+    cfg = engine.load_config()
     cfg.setdefault("modes", {}).setdefault("tone", {})["preset"] = preset
-    grammar_fix.save_config(cfg)
+    engine.save_config(cfg)
     return preset
 
 
 def _act_stats(_args: dict) -> dict:
-    return grammar_fix.compute_usage_stats()
+    return engine.compute_usage_stats()
 
 
 def _act_dashboard_data(_args: dict) -> dict:
-    return grammar_fix.compute_dashboard_data()
+    return engine.compute_dashboard_data()
 
 
 def _act_config_snapshot(_args: dict) -> dict:
-    return grammar_fix.build_config_snapshot()
+    return engine.build_config_snapshot()
 
 
 def _act_models_list(_args: dict) -> dict:
-    return grammar_fix.list_flm_models()
+    return engine.list_flm_models()
 
 
 def _act_models_installed(_args: dict) -> dict:
-    return grammar_fix._flm_list("installed")
+    return engine._flm_list("installed")
 
 
 def _act_models_not_installed(_args: dict) -> dict:
-    return grammar_fix._flm_list("not-installed")
+    return engine._flm_list("not-installed")
 
 
 def _act_pull_model(args: dict) -> str:
@@ -280,10 +278,11 @@ def _act_pull_model(args: dict) -> str:
     if not name:
         raise ValueError("pull_model requires args.value")
     try:
-        import actions
+        _cfg = engine.load_config()
+        _pull_timeout = int(_cfg.get("flm_server", {}).get("pull_timeout_seconds", 900))
         result = _spawn_logged(
             "flm.pull", ["flm", "pull", name],
-            timeout=actions.PULL_MODEL_TIMEOUT_SECONDS,
+            timeout=_pull_timeout,
         )
     except FileNotFoundError:
         raise RuntimeError("flm CLI not found in PATH")
@@ -318,23 +317,23 @@ def _act_apply_config_patch(args: dict) -> str:
         )
     if not isinstance(patch, dict):
         raise ValueError("patch must be a JSON object")
-    return grammar_fix.apply_config_patch(patch)
+    return engine.apply_config_patch(patch)
 
 
 def _act_doctor(_args: dict) -> str:
-    return grammar_fix.run_doctor()
+    return engine.run_doctor()
 
 
 def _act_version(_args: dict) -> str:
-    return grammar_fix.APP_VERSION
+    return engine.APP_VERSION
 
 
 def _act_update_check(_args: dict) -> dict:
-    return grammar_fix.check_for_update()
+    return engine.check_for_update()
 
 
 def _act_update_apply(_args: dict) -> str:
-    return grammar_fix.apply_update()
+    return engine.apply_update()
 
 
 def _act_flm_update_check(args: dict) -> dict:
@@ -360,8 +359,8 @@ def _act_bench_start(args: dict) -> dict:
         model,
         _paths.DATA_DIR / "benchmarks",
         flm_version=flm_server.flm_version(),
-        stop_serve=lambda: grammar_fix.stop_flm_server(force=True),
-        start_serve=lambda: grammar_fix.start_flm_server(force_restart=False),
+        stop_serve=lambda: engine.stop_flm_server(force=True),
+        start_serve=lambda: engine.start_flm_server(force_restart=False),
     )
 
 
@@ -404,11 +403,6 @@ def _act_bench_status(_args: dict) -> dict:
 def _act_bench_history(_args: dict) -> dict:
     import benchmark
     return benchmark.history(_paths.DATA_DIR / "benchmarks")
-
-
-def _xml_escape(s: str) -> str:
-    """Backward-compat alias for tests; implementation lives in notify."""
-    return notify.xml_escape(s)
 
 
 def _show_toast_async(title: str, message: str) -> None:
@@ -552,6 +546,24 @@ _WRITE_ACTIONS = {
     "set_autostart", "bench_start", "pull_start",
 }
 
+# Actions safe to invoke via engine.py --app-action when the daemon is down
+# (no args body required).  Also used by listener.py subprocess fallback.
+READ_ONLY_SUBPROCESS_ACTIONS = frozenset({
+    "config_snapshot",
+    "dashboard_data",
+    "stats",
+    "version",
+    "update_check",
+    "doctor",
+    "models_list",
+    "models_installed",
+    "models_not_installed",
+    "status",
+    "performance",
+    "history_text_status",
+    "tone_preset",
+})
+
 _shutdown_event = threading.Event()
 _started_at = time.time()
 
@@ -562,7 +574,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"FlowkeyDaemon/{API_VERSION}"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        log.info("HTTP %s", fmt % args)
+        log.debug("HTTP %s", fmt % args)
 
     def _send_json(self, status: int, body: dict) -> None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -587,7 +599,7 @@ class Handler(BaseHTTPRequestHandler):
             uptime = round(time.time() - _started_at, 1)
             self._send_json(200, {
                 "ok": True,
-                "version": grammar_fix.APP_VERSION,
+                "version": engine.APP_VERSION,
                 "api": API_VERSION,
                 "uptime_seconds": uptime,
                 "actions": sorted(ACTIONS.keys()),
@@ -645,7 +657,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 result = handler(args)
             elapsed = (time.time() - start) * 1000.0
-            log.info("action=%s status=ok elapsed_ms=%.1f", action_name, elapsed)
+            log.debug("action=%s status=ok elapsed_ms=%.1f", action_name, elapsed)
             if not self._send_json_safely(200, _ok(result, elapsed)):
                 return
         except Exception as e:
@@ -689,7 +701,7 @@ def _watch_parent(parent_pid: int) -> None:
 def _setup_logging(log_level: str) -> None:
     level = getattr(logging, log_level.upper(), logging.INFO)
 
-    parent = logging.getLogger("ffp")
+    parent = logging.getLogger("flowkey")
     parent.setLevel(level)
     if parent.handlers:
         return
@@ -731,7 +743,7 @@ def main() -> int:
     server.timeout = 1.0
 
     log.info("Flowkey daemon listening on http://%s:%d (version %s)",
-             HOST, args.port, grammar_fix.APP_VERSION)
+             HOST, args.port, engine.APP_VERSION)
 
     try:
         while not _shutdown_event.is_set():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from functools import partial
@@ -20,6 +21,8 @@ from tui.dashboard._daemon import (
     _DAEMON_TIMEOUT_PULL_START,
     _daemon_post,
 )
+
+log = logging.getLogger("flowkey.tui.dashboard")
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _DEFAULT_TIMEOUT = 15.0
@@ -233,13 +236,13 @@ class FlmModelPanel(Vertical):
         try:
             row = self.query_one("#flm-pull-row")
             row.remove_class("active")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not clear pull-row active class: %s", exc)
         self._set_select_enabled(False)
         try:
             self.query_one("#flm-download-select", Select).disabled = True
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not disable download select: %s", exc)
 
     # ---- Internal renderers ----
 
@@ -302,8 +305,8 @@ class FlmModelPanel(Vertical):
         try:
             select = self.query_one("#flm-active-model-select", Select)
             select.disabled = not enabled
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not toggle select disabled state: %s", exc)
 
     # ---- Pollers ----
 
@@ -383,8 +386,8 @@ class FlmModelPanel(Vertical):
         try:
             line = self.query_one("#flm-restart-status-line", Static)
             line.update(f"[yellow]{glyph} {self.restart_label}[/]")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not update restart spinner: %s", exc)
 
     def _tick_pull_spinner(self) -> None:
         if not self._pull_in_flight:
@@ -394,16 +397,16 @@ class FlmModelPanel(Vertical):
         try:
             spinner = self.query_one("#flm-pull-spinner", Static)
             spinner.update(f"[yellow]{glyph}[/]")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not update pull spinner: %s", exc)
 
     def _refresh_dashboard(self) -> None:
         """Trigger a full dashboard refresh so model lists are re-fetched."""
         try:
             from tui.dashboard import DashboardWidget
             self.app.query_one(DashboardWidget).refresh_now()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not refresh dashboard: %s", exc)
 
     # ---- Event handlers ----
 
@@ -428,8 +431,8 @@ class FlmModelPanel(Vertical):
                 chat = self.app.query_one(ChatWidget)
                 if chat.is_streaming():
                     is_streaming = True
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not check chat streaming state: %s", exc)
 
             # --- "(none)" selected → unload the model ---
             if not new_value:
@@ -514,15 +517,15 @@ class FlmModelPanel(Vertical):
                 from tui.chat import ChatWidget
                 chat = self.app.query_one(ChatWidget)
                 chat.set_model(new_value)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not set chat model: %s", exc)
             # Refresh the parent's view of the active model and the installed
             # list.  This makes multiple HTTP requests and may take seconds.
             try:
                 from tui.dashboard import DashboardWidget  # local import to avoid cycles
                 self.app.query_one(DashboardWidget).refresh_now()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not refresh dashboard after model change: %s", exc)
         except Exception as exc:
             self.app.notify(
                 f"Model change failed: {exc}", severity="error", timeout=8
@@ -535,8 +538,8 @@ class FlmModelPanel(Vertical):
                     select.value = self._prior_active
                 elif self._installed_models:
                     select.value = self._installed_models[0]
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not revert model select after error: %s", exc)
         finally:
             self.restarting = False
             self.restart_label = ""
@@ -582,8 +585,8 @@ class FlmModelPanel(Vertical):
             from tui.chat import ChatWidget
             chat = self.app.query_one(ChatWidget)
             chat.set_model("")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not clear chat model: %s", exc)
         # Suppress the Select.Changed that _refresh_select triggers when it
         # sets select.value = "" — the user *just* picked (none) intentionally.
         self._last_select_refresh_at = time.monotonic()
@@ -618,8 +621,8 @@ class FlmModelPanel(Vertical):
             try:
                 text = self.query_one("#flm-pull-text", Static)
                 text.update("Cancelling…")
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("could not update pull text: %s", exc)
         except Exception as exc:
             self.app.notify(
                 f"Cancel failed: {exc}", severity="error", timeout=6
@@ -646,8 +649,8 @@ class FlmModelPanel(Vertical):
                 box.update(self._current_version)
             else:
                 box.update("[yellow]not detected[/]")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not update version box: %s", exc)
 
     # ---- Status auto-hide ----
 
@@ -662,8 +665,8 @@ class FlmModelPanel(Vertical):
         self._status_timer = None
         try:
             self.query_one("#flm-update-status", Static).remove_class("-visible")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not hide update status: %s", exc)
 
     # ---- Workers ----
 
@@ -673,8 +676,8 @@ class FlmModelPanel(Vertical):
         try:
             icon = self.query_one("#flm-check-update-btn", Static)
             icon.update("…")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("could not update check-update icon: %s", exc)
 
         try:
             resp = await asyncio.to_thread(
@@ -700,27 +703,27 @@ class FlmModelPanel(Vertical):
                         status.update("[yellow]FLM up to date ✓[/]")
                         status.add_class("-visible")
                         self._schedule_status_hide()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("update check status update failed: %s", exc)
             else:
                 try:
                     status = self.query_one("#flm-update-status", Static)
                     status.update(f"[red]Update check failed: {resp.get('error', 'unknown')}[/]")
                     status.add_class("-visible")
                     self._schedule_status_hide()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("error status display failed: %s", exc)
         except Exception as exc:
             try:
                 status = self.query_one("#flm-update-status", Static)
                 status.update(f"[red]Update check error: {exc}[/]")
                 status.add_class("-visible")
                 self._schedule_status_hide()
-            except Exception:
-                pass
+            except Exception as inner:
+                log.warning("error status display failed after outer exception: %s", inner)
         finally:
             if icon is not None:
                 try:
                     icon.update("🗘 ")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.warning("could not restore check-update icon: %s", exc)
