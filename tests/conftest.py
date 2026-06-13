@@ -1,36 +1,38 @@
 from __future__ import annotations
 
 import importlib
+import shutil
 import sys
 from pathlib import Path
 
 import pytest
 
-RELEASE_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS_DIR = RELEASE_ROOT / "scripts"
-CONFIG_EXAMPLE = SCRIPTS_DIR / "config.seed.json"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_SCRIPTS_DIR = REPO_ROOT / "scripts"
 
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
+if str(REPO_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(REPO_SCRIPTS_DIR))
 
 
 @pytest.fixture
-def isolated_release_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def isolated_checkout_root(tmp_path: Path) -> Path:
     root = tmp_path / "release_root"
-    (root / "data").mkdir(parents=True)
-    (root / "logs").mkdir()
-    if CONFIG_EXAMPLE.exists():
-        (root / CONFIG_EXAMPLE.name).write_text(
-            CONFIG_EXAMPLE.read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
-    monkeypatch.setenv("FFP_RELEASE_ROOT", str(root))
+    scripts = root / "scripts"
+    shutil.copytree(
+        REPO_SCRIPTS_DIR,
+        scripts,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
+    )
+    (root / "data").mkdir(parents=True, exist_ok=True)
+    (root / "logs").mkdir(parents=True, exist_ok=True)
     return root
 
 
 @pytest.fixture
-def fresh_modules(isolated_release_root: Path):
-    del isolated_release_root
+def fresh_modules(isolated_checkout_root: Path):
+    scripts_dir = isolated_checkout_root / "scripts"
+    sys.path.insert(0, str(scripts_dir))
     for name in [
         "paths",
         "engine",
@@ -56,6 +58,10 @@ def fresh_modules(isolated_release_root: Path):
 
     for name in list(modules):
         sys.modules.pop(name, None)
+    try:
+        sys.path.remove(str(scripts_dir))
+    except ValueError:
+        pass
 
 
 @pytest.fixture

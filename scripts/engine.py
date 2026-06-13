@@ -32,10 +32,6 @@ try:
 except Exception:
     APP_VERSION = "0.0.0"  # dev/uninstalled fallback; logger not available yet
 
-# Run a one-time migration of pre-v1.2.0 layouts (files under scripts/) into
-# the new folders. Idempotent + cheap — does nothing if everything's already
-# in place.
-_paths.migrate_legacy_layout()
 _paths.ensure_dirs()
 
 TOOL_DIR = _paths.SCRIPTS_DIR          # kept for callers that still resolve relative paths

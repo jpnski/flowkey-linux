@@ -1116,30 +1116,11 @@ def dashboard_poll_loop() -> None:
 def _shortcut_to_human(shortcut: str) -> str:
     """Convert a hotkey string to human-readable display form.
 
-    Handles both human-readable ('ctrl+alt+g' -> 'Ctrl+Alt+G') and
-    legacy compact ('^!g' -> 'Ctrl+Alt+G') formats.
+    Handles human-readable ('ctrl+alt+g' -> 'Ctrl+Alt+G') format.
     """
     raw = (shortcut or "").strip()
 
-    # Detect format by presence of '+' separator.
-    if "+" in raw:
-        parts = [p.strip().capitalize() for p in raw.split("+") if p.strip()]
-        return "+".join(parts)
-
-    # Legacy compact format (^=Ctrl, !=Alt, #=Super).
-    mod_names = {"^": "Ctrl", "!": "Alt", "#": "Super"}
-    parts: list[str] = []
-    i = 0
-    while i < len(raw):
-        ch = raw[i]
-        if ch in mod_names:
-            parts.append(mod_names[ch])
-            i += 1
-        else:
-            break
-    key = raw[i:].upper() if i < len(raw) else ""
-    if key:
-        parts.append(key)
+    parts = [p.strip().capitalize() for p in raw.split("+") if p.strip()]
     return "+".join(parts)
 
 
@@ -1149,41 +1130,21 @@ def _shortcut_to_pynput(shortcut: str) -> str:
     'ctrl+alt+g' -> <ctrl>+<alt>+g
     'ctrl+alt+t' -> <ctrl>+<alt>+t
     'ctrl+super+a' -> <ctrl>+<win>+a
-
-    Also handles legacy compact format ('^!g' -> <ctrl>+<alt>+g).
     """
     raw = (shortcut or "").strip().lower()
     mod_map = {"ctrl": "<ctrl>", "super": "<win>", "alt": "<alt>"}
 
-    # Try human-readable format (split on '+').
-    if "+" in raw:
-        parts = [p.strip() for p in raw.split("+") if p.strip()]
-        pynput_parts: list[str] = []
-        key = ""
-        for p in parts:
-            if p in mod_map:
-                pynput_parts.append(mod_map[p])
-            elif p.isalnum() and not key:
-                key = p
-        if key:
-            pynput_parts.append(key)
-        return "+".join(pynput_parts)
-
-    # Legacy compact format (^=ctrl, !=alt, #=super, +=shift).
-    pynput_mods = {"^": "<ctrl>", "+": "<shift>", "!": "<alt>", "#": "<win>"}
-    parts = []
-    i = 0
-    while i < len(raw):
-        ch = raw[i]
-        if ch in pynput_mods:
-            parts.append(pynput_mods[ch])
-            i += 1
-        else:
-            break
-    key = raw[i:] if i < len(raw) else ""
+    parts = [p.strip() for p in raw.split("+") if p.strip()]
+    pynput_parts: list[str] = []
+    key = ""
+    for p in parts:
+        if p in mod_map:
+            pynput_parts.append(mod_map[p])
+        elif p.isalnum() and not key:
+            key = p
     if key:
-        parts.append(key)
-    return "+".join(parts)
+        pynput_parts.append(key)
+    return "+".join(pynput_parts)
 
 
 def _register_x11_hotkeys(handlers: dict[str, callable]) -> Any:
@@ -1258,16 +1219,10 @@ def _register_wayland_hotkeys(handlers: dict[str, callable]) -> threading.Thread
 def _shortcut_to_evdev(shortcut: str) -> set[int]:
     """Convert a hotkey string to a set of evdev key codes.
 
-    Accepts human-readable ('ctrl+alt+g') and legacy compact ('^!g') formats.
+    Accepts human-readable ('ctrl+alt+g') format.
     """
     from evdev import ecodes
 
-    sym_mod_map = {
-        "^": {ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL},
-        "+": {ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT},
-        "!": {ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT},
-        "#": {ecodes.KEY_LEFTMETA, ecodes.KEY_RIGHTMETA},
-    }
     name_mod_map = {
         "ctrl":  {ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL},
         "super": {ecodes.KEY_LEFTMETA, ecodes.KEY_RIGHTMETA},
@@ -1278,26 +1233,12 @@ def _shortcut_to_evdev(shortcut: str) -> set[int]:
     codes: set[int] = set()
     key_char = ""
 
-    # Human-readable format (split on '+').
-    if "+" in raw:
-        parts = [p.strip() for p in raw.split("+") if p.strip()]
-        for p in parts:
-            if p in name_mod_map:
-                codes.update(name_mod_map[p])
-            elif p.isalnum() and not key_char:
-                key_char = p
-    else:
-        # Legacy compact format.
-        i = 0
-        while i < len(raw):
-            ch = raw[i]
-            if ch in sym_mod_map:
-                codes.update(sym_mod_map[ch])
-                i += 1
-            else:
-                break
-        key_char = raw[i:] if i < len(raw) else ""
-        key_char = shortcut[i:].upper() if i < len(shortcut) else ""
+    parts = [p.strip() for p in raw.split("+") if p.strip()]
+    for p in parts:
+        if p in name_mod_map:
+            codes.update(name_mod_map[p])
+        elif p.isalnum() and not key_char:
+            key_char = p.upper()
     if key_char and len(key_char) == 1 and "A" <= key_char <= "Z":
         key_attr = f"KEY_{key_char}"
         code = getattr(ecodes, key_attr, None)

@@ -36,33 +36,19 @@ for _label, action in _HOTKEY_ACTIONS:
 def _parse_hotkey(raw: str) -> tuple[str, str, str]:
     """Parse a hotkey string into (mod1, mod2, letter).
 
-    Accepts both human-readable ('ctrl+alt+g') and legacy compact ('^!g')
-    formats.  Returns ('ctrl', 'ctrl', '') as fallback.
+    Accepts human-readable ('ctrl+alt+g') format.
+    Returns ('ctrl', 'ctrl', '') as fallback.
     """
     s = (raw or "").strip().lower()
-    if "+" in s:
-        parts = [p.strip() for p in s.split("+") if p.strip()]
-        known_mods = {"ctrl", "super", "alt"}
-        mods: list[str] = []
-        letter = ""
-        for p in parts:
-            if p in known_mods:
-                mods.append(p)
-            elif p.isalnum() and not letter:
-                letter = p
-        mod1 = mods[0] if len(mods) > 0 else "ctrl"
-        mod2 = mods[1] if len(mods) > 1 else mods[0] if len(mods) == 1 else "ctrl"
-        return (mod1, mod2, letter)
-
-    # Legacy compact format.
-    SYM_TO_MOD = {"^": "ctrl", "!": "alt", "#": "super"}
+    parts = [p.strip() for p in s.split("+") if p.strip()]
+    known_mods = {"ctrl", "super", "alt"}
     mods = []
     letter = ""
-    for ch in s:
-        if ch in SYM_TO_MOD:
-            mods.append(SYM_TO_MOD[ch])
-        elif ch.isalnum() and not letter:
-            letter = ch
+    for p in parts:
+        if p in known_mods:
+            mods.append(p)
+        elif p.isalnum() and not letter:
+            letter = p
     mod1 = mods[0] if len(mods) > 0 else "ctrl"
     mod2 = mods[1] if len(mods) > 1 else mods[0] if len(mods) == 1 else "ctrl"
     return (mod1, mod2, letter)

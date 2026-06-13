@@ -191,8 +191,6 @@ def test_prompt_mode_cli_writes_output_file(fresh_modules, monkeypatch, tmp_path
     monkeypatch.setattr(engine, "is_flm_server_reachable", lambda: True)
 
     def fake_call(model, system_prompt, user_content, max_tokens, timeout_seconds):
-        # v1.3.0 tightened the prompt-mode system prompt; "Claude-ready" is the
-        # remaining signal that the prompt-mode path was selected.
         assert "Claude-ready" in system_prompt
         return ("<task>Refine onboarding email</task>", model)
 

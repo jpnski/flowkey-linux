@@ -19,7 +19,6 @@ _DAEMON_TIMEOUT_MODEL_CHANGE = 75.0  # Must accommodate: stop_flm (~3s) + start_
 _DAEMON_TIMEOUT_PULL_START = 25.0
 _DAEMON_TIMEOUT_PULL_CANCEL = 10.0
 
-# Re-export for backward compatibility — all dashboard panes import from here.
 _daemon_post = loopback_http.daemon_post
 
 

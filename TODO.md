@@ -334,10 +334,18 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 
 ### Distribution
 
-- [ ] **81.** Add PyInstaller frozen-mode detection to `paths.py` — when `getattr(sys, 'frozen', False)` is set, treat as production layout (runtime data → `~/.local/share/Flowkey/`, not temp bundle dir).
+- [x] **81.** Add PyInstaller frozen-mode detection to `paths.py` — when `getattr(sys, 'frozen', False)` is set, treat as production layout (runtime data → `~/.local/share/Flowkey/`, not temp bundle dir).
 
 - [ ] **82.** Consolidate 6 console_scripts into single `flowkey` binary with subcommands (`daemon`, `tui`, `listen`, `tray`, `install`, `process`).
 
-- [ ] **83.** Replace pip-install distribution with PyInstaller-built binary — rewrite `install.sh` for curl-to-bash: detect arch, download GitHub release tarball, extract to PATH, run system setup (udev, groups, deps, desktop entry). Keep `--from-source` path for dev contributors.
+- [ ] **83.** Add a PyInstaller packaging spec / build entrypoint for the `flowkey` binary — bundle the app resources, make the single-command dispatcher the primary executable, and ensure frozen builds preserve the current module layout.
 
-- [ ] **84.** Set up GitHub Actions release workflow — on tag push, build PyInstaller binaries for x86_64 + aarch64, upload as release assets.
+- [ ] **84.** Update all installed-launch surfaces to target `flowkey` subcommands instead of separate console scripts — desktop entries, autostart, installer post-install steps, and any internal spawns should use `flowkey daemon`, `flowkey tui`, `flowkey listen`, `flowkey tray`, etc.
+
+- [ ] **85.** Replace pip-install distribution with PyInstaller-built binary — rewrite `install.sh` for curl-to-bash: detect arch, download GitHub release tarball, extract to PATH, run system setup (udev, groups, deps, desktop entry). Keep `--from-source` path for dev contributors.
+
+- [ ] **86.** Add an install-time smoke test for the distributed binary — verify a clean user-local install can launch `flowkey daemon`, `flowkey tui`, and `flowkey listen` from PATH, and that runtime state lands in the XDG data dirs rather than the repo or bundle temp directory.
+
+- [ ] **87.** Set up GitHub Actions release workflow — on tag push, build PyInstaller binaries for x86_64 + aarch64, upload as release assets.
+
+- [ ] **88.** Rewrite README installation docs for the binary release flow — document the `curl -fsSL ... | bash` install path, `~/.local/bin` expectations, and the supported `--from-source` fallback for contributors.

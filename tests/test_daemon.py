@@ -43,11 +43,6 @@ def daemon_server(daemon_module):
 
 
 def test_actions_count_and_expected_names(daemon_module):
-    # v1.4.0 added get_autostart_state + set_autostart -> 38.
-    # Late v1.4.0 added flm_update_check, bench_start/status/history,
-    # v2.0.0: removed chat_reload, chat_restart (chat_popup deleted) -> 46.
-    # v2.0.0+flm-panel: added pull_cancel -> 47.
-    # v2.0.0+power-mode: renamed performance→power_mode, set_perf_*→set_power_* -> 49
     assert len(daemon_module.ACTIONS) == 49
     assert "version" in daemon_module.ACTIONS
     assert "apply_config_patch" in daemon_module.ACTIONS
@@ -56,7 +51,6 @@ def test_actions_count_and_expected_names(daemon_module):
     assert "config_snapshot" in daemon_module.ACTIONS
     assert "get_autostart_state" in daemon_module.ACTIONS
     assert "set_autostart" in daemon_module.ACTIONS
-    # late-v1.4.0 feature actions
     assert "flm_update_check" in daemon_module.ACTIONS
     assert "bench_start" in daemon_module.ACTIONS
     assert "bench_status" in daemon_module.ACTIONS
@@ -65,7 +59,6 @@ def test_actions_count_and_expected_names(daemon_module):
     assert "pull_start" in daemon_module.ACTIONS
     assert "pull_status" in daemon_module.ACTIONS
     assert "pull_cancel" in daemon_module.ACTIONS
-    # removed in v1.5.4
     assert "model_stats" not in daemon_module.ACTIONS
 
 
@@ -354,6 +347,5 @@ def test_send_json_safely_returns_true_on_normal_send(daemon_module):
     handler._send_json = lambda status, body: sent.append((status, body))  # type: ignore[method-assign]
     assert handler._send_json_safely(200, {"ok": True, "result": "x"}) is True
     assert sent == [(200, {"ok": True, "result": "x"})]
-
 
 
