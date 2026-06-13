@@ -1,0 +1,95 @@
+# Flowkey Linux — Release
+#
+# Builds frozen Linux binaries for x86_64 and aarch64 on tag push and uploads
+# release tarballs as GitHub Release assets.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            platform: linux/amd64
+            artifact_name: flowkey-linux-x86_64.tar.gz
+          - arch: aarch64
+            platform: linux/arm64
+            artifact_name: flowkey-linux-aarch64.tar.gz
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Build ${{ matrix.arch }} release artifact
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --platform "${{ matrix.platform }}" \
+            -e DEBIAN_FRONTEND=noninteractive \
+            -e ARTIFACT_NAME="${{ matrix.artifact_name }}" \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            python:3.12-slim-bookworm \
+            bash -lc '
+              set -euo pipefail
+              apt-get update -qq
+              apt-get install -y -qq \
+                build-essential \
+                curl \
+                gzip \
+                patchelf \
+                tar \
+                python3-dev \
+                libevdev-dev \
+                libx11-dev
+              python -m pip install --upgrade pip
+              pip install ".[dev]"
+              python scripts/build_frozen.py
+              tar -C dist -czf "${ARTIFACT_NAME}" flowkey
+              sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"
+            '
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            ${{ matrix.artifact_name }}
+            ${{ matrix.artifact_name }}.sha256
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            release-artifacts/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

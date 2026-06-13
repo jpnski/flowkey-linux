@@ -2,19 +2,18 @@
 # Flowkey — Linux system installer
 #
 # Usage:
-#   ./install.sh              # full system-wide install (requires sudo for system deps)
-#   ./install.sh --user       # user-local install (pip install --user, no sudo needed)
-#   ./install.sh --venv PATH  # install into a venv at PATH (creates if missing)
+#   ./install.sh              # binary install (downloads release asset into ~/.local)
+#   ./install.sh --from-source # contributor install from the local checkout
 #   ./install.sh --help       # this message
 #
 # What this script does:
 #   1. Detect Linux distro and install system packages (apt/dnf/pacman/zypper)
 #   2. Add current user to 'input' group for evdev hotkey capture
 #   3. Install udev rule for /dev/input/event* (Wayland hotkeys)
-#   4. Run pip install (system-wide, --user, or into a venv)
-#   5. Run 'flowkey install' for config bootstrap, autostart, and model pull
+#   4. Download and install the binary release into ~/.local/opt/flowkey/current
+#   5. Symlink ~/.local/bin/flowkey to the installed binary
 #   6. Create ~/.local/share/applications/flowkey.desktop
-#   7. Convert assets/flowkey.ico → flowkey.png if ImageMagick present (fallback)
+#   7. Run 'flowkey install' for config bootstrap, autostart, and model pull
 #
 # This script is idempotent — safe to re-run.
 #
@@ -27,7 +26,7 @@
 #     python3-pystray, python3-textual (Python packages,
 #     installed via pip, NOT via apt — listed here for reference)
 #
-# Python packages are installed via pip from pyproject.toml.
+# Contributor installs can still use pip from pyproject.toml.
 
 set -euo pipefail
 
@@ -51,15 +50,12 @@ usage() {
 }
 
 # ── Parse arguments ──────────────────────────────────────────────────────────
-INSTALL_MODE="system"  # system | user | venv
-VENV_PATH=""
+INSTALL_MODE="binary"  # binary | from-source
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --help) usage ;;
-    --user) INSTALL_MODE="user"; shift ;;
-    --venv) INSTALL_MODE="venv"; VENV_PATH="$2"; shift 2 ;;
-    --venv=*) INSTALL_MODE="venv"; VENV_PATH="${1#*=}"; shift ;;
+    --from-source) INSTALL_MODE="from-source"; shift ;;
     *) fail "Unknown option: $1. Use --help for usage." ;;
   esac
 done
@@ -109,6 +105,16 @@ detect_distro() {
   fi
 }
 
+run_privileged() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    return 1
+  fi
+}
+
 DISTRO="$(detect_distro)"
 log "Detected distribution family: ${DISTRO}"
 
@@ -133,8 +139,8 @@ install_system_packages() {
       )
       # On Debian/Ubuntu, 'xdg-utils' is usually already present but ensure:
       log "Debian/Ubuntu detected. Installing system packages..."
-      sudo apt-get update -qq || warn "apt update failed (continuing)"
-      sudo apt-get install -y -qq "${pkg_list[@]}" || {
+       run_privileged apt-get update -qq || warn "apt update failed (continuing)"
+       run_privileged apt-get install -y -qq "${pkg_list[@]}" || {
         warn "Some packages failed to install. Check individual package names for your release."
         return 1
       }
@@ -149,7 +155,7 @@ install_system_packages() {
         libX11-devel
       )
       log "Fedora/RHEL detected. Installing system packages..."
-      sudo dnf install -y "${pkg_list[@]}" || {
+       run_privileged dnf install -y "${pkg_list[@]}" || {
         warn "Some packages failed to install. Check individual package names for your release."
         return 1
       }
@@ -163,7 +169,7 @@ install_system_packages() {
         python
       )
       log "Arch Linux detected. Installing system packages..."
-      sudo pacman -S --needed --noconfirm "${pkg_list[@]}" || {
+       run_privileged pacman -S --needed --noconfirm "${pkg_list[@]}" || {
         warn "Some packages failed to install. Check individual package names for your system."
         return 1
       }
@@ -178,7 +184,7 @@ install_system_packages() {
         libX11-devel
       )
       log "openSUSE detected. Installing system packages..."
-      sudo zypper install -y "${pkg_list[@]}" || {
+       run_privileged zypper install -y "${pkg_list[@]}" || {
         warn "Some packages failed to install. Check individual package names for your release."
         return 1
       }
@@ -194,14 +200,14 @@ install_system_packages() {
   # but don't fail if unavailable.
   case "$DISTRO" in
     debian)
-      sudo apt-get install -y -qq libevdev-dev 2>/dev/null || true ;;
+       run_privileged apt-get install -y -qq libevdev-dev 2>/dev/null || true ;;
     fedora)
-      sudo dnf install -y libevdev-devel 2>/dev/null || true ;;
+       run_privileged dnf install -y libevdev-devel 2>/dev/null || true ;;
     arch)
       # libevdev is usually already in base-devel
       true ;;
     suse)
-      sudo zypper install -y libevdev-devel 2>/dev/null || true ;;
+       run_privileged zypper install -y libevdev-devel 2>/dev/null || true ;;
   esac
 
   log "System package installation complete."
@@ -217,7 +223,7 @@ setup_groups() {
     log "User already in 'input' group."
   else
     log "Adding user '$USER' to 'input' group for evdev access..."
-    sudo usermod -aG input "$USER" || warn "Could not add to 'input' group."
+    run_privileged usermod -aG input "$USER" || warn "Could not add to 'input' group."
     log "You may need to log out and back in for group changes to take effect."
   fi
 }
@@ -233,78 +239,62 @@ setup_udev() {
   fi
 
   log "Installing udev rule for evdev hotkey capture..."
-  echo "$rule" | sudo tee "$rule_file" >/dev/null || {
+  echo "$rule" | run_privileged tee "$rule_file" >/dev/null || {
     warn "Could not write $rule_file. evdev hotkeys (Wayland) may need manual setup."
     return 1
   }
-  sudo udevadm control --reload-rules 2>/dev/null || true
-  sudo udevadm trigger 2>/dev/null || true
+  run_privileged udevadm control --reload-rules 2>/dev/null || true
+  run_privileged udevadm trigger 2>/dev/null || true
   log "udev rule installed. Re-plug any input devices or reboot to apply."
 }
 
-# ── Icon conversion (fallback) ───────────────────────────────────────────────
-ensure_icon() {
-  local ico_path="${SCRIPT_DIR}/scripts/assets/flowkey.ico"
-  local png_path="${SCRIPT_DIR}/scripts/assets/flowkey.png"
+# ── Binary payload install ───────────────────────────────────────────────────
+FLOWKEY_RELEASE_REPO="${FLOWKEY_RELEASE_REPO:-jpnski/flowkey-linux}"
+FLOWKEY_RELEASE_TAG="${FLOWKEY_RELEASE_TAG:-latest}"
+FLOWKEY_RELEASE_TARBALL="${FLOWKEY_RELEASE_TARBALL:-}"
+FLOWKEY_INSTALL_ROOT="${FLOWKEY_INSTALL_ROOT:-${HOME}/.local/opt/flowkey/current}"
+FLOWKEY_BIN_DIR="${FLOWKEY_BIN_DIR:-${HOME}/.local/bin}"
+FLOWKEY_BIN_PATH="${FLOWKEY_BIN_PATH:-${FLOWKEY_BIN_DIR}/flowkey}"
+FLOWKEY_SKIP_SYSTEM_SETUP="${FLOWKEY_SKIP_SYSTEM_SETUP:-0}"
 
-  if [[ -f "$png_path" ]]; then
-    log "Icon: flowkey.png exists (${png_path})"
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo "x86_64" ;;
+    aarch64|arm64) echo "aarch64" ;;
+    *) fail "Unsupported architecture: $(uname -m) (expected x86_64 or aarch64)." ;;
+  esac
+}
+
+resolve_release_tag() {
+  if [[ -n "$FLOWKEY_RELEASE_TAG" && "$FLOWKEY_RELEASE_TAG" != "latest" ]]; then
+    echo "$FLOWKEY_RELEASE_TAG"
     return 0
   fi
+  curl -fsSL "https://api.github.com/repos/${FLOWKEY_RELEASE_REPO}/releases/latest" \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin)["tag_name"])'
+}
 
-  if [[ -f "$ico_path" ]]; then
-    if command -v convert >/dev/null 2>&1; then
-      log "Converting flowkey.ico → flowkey.png..."
-      convert "$ico_path" "$png_path" || warn "Icon conversion failed (non-fatal)."
-    else
-      warn "flowkey.ico found but ImageMagick not installed. Install ImageMagick or provide flowkey.png manually."
+resolve_icon_path() {
+  local candidates=(
+    "${FLOWKEY_INSTALL_ROOT}/_internal/assets/flowkey.png"
+    "${FLOWKEY_INSTALL_ROOT}/assets/flowkey.png"
+    "${SCRIPT_DIR}/scripts/assets/flowkey.png"
+    "${SCRIPT_DIR}/assets/flowkey.png"
+  )
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
     fi
-  else
-    warn "No icon files found at scripts/assets/. Tray icon will be missing."
-  fi
+  done
+  echo "flowkey"
 }
 
-# ── pip install ──────────────────────────────────────────────────────────────
-run_pip_install() {
-  local pip_cmd
-
-  case "$INSTALL_MODE" in
-    system)
-      log "Installing Flowkey system-wide..."
-      pip_cmd="sudo python3 -m pip install --upgrade --no-cache-dir"
-      ;;
-    user)
-      log "Installing Flowkey for current user (--user)..."
-      pip_cmd="python3 -m pip install --user --upgrade --no-cache-dir"
-      ;;
-    venv)
-      if [[ -z "$VENV_PATH" ]]; then
-        fail "--venv requires a path argument."
-      fi
-      if [[ ! -f "${VENV_PATH}/bin/activate" ]]; then
-        log "Creating virtual environment at ${VENV_PATH}..."
-        python3 -m venv "$VENV_PATH" || fail "Failed to create venv at ${VENV_PATH}."
-      fi
-      log "Installing Flowkey into venv at ${VENV_PATH}..."
-      pip_cmd="${VENV_PATH}/bin/pip install --upgrade --no-cache-dir"
-      ;;
-  esac
-
-  # Build wheel first for cleaner install
-  log "Building wheel..."
-  (cd "$SCRIPT_DIR" && python3 -m build --wheel --no-isolation 2>/dev/null) || {
-    log "Wheel build skipped (build module may be missing), using pip install directly."
-  }
-
-  # Install the package (from source, so pip picks up pyproject.toml)
-  $pip_cmd "$SCRIPT_DIR" || fail "pip install failed. Check output above."
-  log "Python package installed."
-}
-
-# ── XDG desktop entries ──────────────────────────────────────────────────────
 create_tui_desktop_entry() {
   local apps_dir="${HOME}/.local/share/applications"
   local desktop_file="${apps_dir}/flowkey.desktop"
+  local icon_path
 
   mkdir -p "$apps_dir"
 
@@ -313,11 +303,7 @@ create_tui_desktop_entry() {
     return 0
   fi
 
-  local icon_path
-  icon_path="$(command -v flowkey >/dev/null 2>&1 && dirname "$(command -v flowkey)" 2>/dev/null || echo "/usr/local/bin")"
-  # Use the PNG icon path relative to the scripts dir
-  icon_path="${SCRIPT_DIR}/scripts/assets/flowkey.png"
-  [[ -f "$icon_path" ]] || icon_path="flowkey"  # fall back to icon name
+  icon_path="$(resolve_icon_path)"
 
   cat > "$desktop_file" <<DESKTOP_EOF
 [Desktop Entry]
@@ -334,33 +320,127 @@ DESKTOP_EOF
   chmod 644 "$desktop_file"
   log "Created TUI desktop entry: ${desktop_file}"
 
-  # Update desktop database if available
   if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$apps_dir" 2>/dev/null || true
   fi
 }
 
-# ── flowkey install (Python setup) ───────────────────────────────────────────
-run_flowkey_install() {
-  local flowkey_install_cmd
+install_binary_release() {
+  local arch tag asset_name release_url tmpdir extract_dir payload_dir payload_target
 
-  case "$INSTALL_MODE" in
-    system)  flowkey_install_cmd="flowkey" ;;
-    user)    flowkey_install_cmd="flowkey" ;;
-    venv)    flowkey_install_cmd="${VENV_PATH}/bin/flowkey" ;;
-  esac
+  arch="$(detect_arch)"
+  asset_name="flowkey-linux-${arch}.tar.gz"
 
-  if command -v "$flowkey_install_cmd" >/dev/null 2>&1; then
-    log "Running flowkey install for config bootstrap and model pull..."
-    $flowkey_install_cmd install || warn "flowkey install reported issues (check above)."
+  command -v tar >/dev/null 2>&1 || fail "tar is required to unpack the release binary."
+
+  tmpdir="$(mktemp -d)"
+  extract_dir="${tmpdir}/extract"
+  mkdir -p "$extract_dir"
+
+  if [[ -n "$FLOWKEY_RELEASE_TARBALL" ]]; then
+    log "Using local Flowkey release archive (${FLOWKEY_RELEASE_TARBALL})."
+    cp "$FLOWKEY_RELEASE_TARBALL" "${tmpdir}/${asset_name}" || fail "Failed to copy ${FLOWKEY_RELEASE_TARBALL}."
   else
-    # Try as a Python module
-    log "flowkey not on PATH, trying python -m install..."
-    case "$INSTALL_MODE" in
-      system) sudo python3 -m install || true ;;
-      user)   python3 -m install || true ;;
-      venv)   "${VENV_PATH}/bin/python" -m install || true ;;
-    esac
+    local release_url
+    local tag
+
+    tag="$(resolve_release_tag)"
+    release_url="https://github.com/${FLOWKEY_RELEASE_REPO}/releases/download/${tag}/${asset_name}"
+    command -v curl >/dev/null 2>&1 || fail "curl is required to download the release binary."
+    log "Downloading Flowkey ${tag} (${arch})..."
+    curl -fsSL "$release_url" -o "${tmpdir}/${asset_name}" || fail "Failed to download ${release_url}."
+  fi
+
+  tar -xzf "${tmpdir}/${asset_name}" -C "$extract_dir" || fail "Failed to unpack ${asset_name}."
+
+  payload_dir=""
+  for candidate in "$extract_dir"/*; do
+    if [[ -d "$candidate" && -f "$candidate/flowkey" ]]; then
+      payload_dir="$candidate"
+      break
+    fi
+  done
+  [[ -n "$payload_dir" ]] || fail "Release archive does not contain a flowkey payload directory."
+
+  mkdir -p "$(dirname "$FLOWKEY_INSTALL_ROOT")" "$FLOWKEY_BIN_DIR"
+  payload_target="${FLOWKEY_INSTALL_ROOT}.new"
+  rm -rf "$payload_target"
+  mv "$payload_dir" "$payload_target" || fail "Failed to stage Flowkey payload into ${payload_target}."
+  rm -rf "$FLOWKEY_INSTALL_ROOT"
+  mv "$payload_target" "$FLOWKEY_INSTALL_ROOT" || fail "Failed to install Flowkey into ${FLOWKEY_INSTALL_ROOT}."
+
+  chmod +x "${FLOWKEY_INSTALL_ROOT}/flowkey" 2>/dev/null || true
+  ln -sfn "${FLOWKEY_INSTALL_ROOT}/flowkey" "$FLOWKEY_BIN_PATH" || fail "Failed to create ${FLOWKEY_BIN_PATH}."
+  log "Installed Flowkey binary to ${FLOWKEY_INSTALL_ROOT}."
+  log "Linked command at ${FLOWKEY_BIN_PATH}."
+}
+
+run_source_install() {
+  local pip_cmd pip_args=()
+
+  log "Installing Flowkey from source checkout..."
+
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
+    pip_cmd="${VIRTUAL_ENV}/bin/python -m pip"
+  else
+    pip_cmd="python3 -m pip"
+    if [[ "$EUID" -ne 0 ]]; then
+      pip_args+=(--user)
+    fi
+  fi
+
+  $pip_cmd install --upgrade --no-cache-dir "${pip_args[@]}" "$SCRIPT_DIR" || \
+    fail "Source install failed. Check the output above."
+  log "Source install complete."
+}
+
+resolve_flowkey_command() {
+  if [[ -x "$FLOWKEY_BIN_PATH" ]]; then
+    echo "$FLOWKEY_BIN_PATH"
+    return 0
+  fi
+  if command -v flowkey >/dev/null 2>&1; then
+    command -v flowkey
+    return 0
+  fi
+  if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/flowkey" ]]; then
+    echo "${VIRTUAL_ENV}/bin/flowkey"
+    return 0
+  fi
+  echo "${HOME}/.local/bin/flowkey"
+}
+
+# ── Post-install summary ─────────────────────────────────────────────────────
+print_summary() {
+  echo
+  log "══════════════════════════════════════════════════"
+  log "  ${APP_NAME} installation complete!"
+  log "══════════════════════════════════════════════════"
+  echo
+  log "Next steps:"
+  echo
+  log "  1. Log out and back in (or reboot) to apply group/udev changes."
+  echo
+  log "  2. Start the action daemon:"
+  log "       flowkey daemon"
+  echo
+  log "  3. Start the global hotkey listener (requires daemon):"
+  log "       flowkey listen"
+  echo
+  log "  4. Or launch the TUI directly:"
+  log "       flowkey tui"
+  echo
+  log "  5. (Optional) Run the installer config step again:"
+  log "       flowkey install"
+  echo
+  log "  For Wayland: install ydotool and ensure you're in the 'input' group."
+  log "  For X11: xdotool and pynput handle everything."
+  echo
+
+  if groups "$USER" 2>/dev/null | grep -qw "input"; then
+    :
+  else
+    warn "You were added to the 'input' group. Log out and back in for evdev hotkeys to work."
   fi
 }
 
@@ -401,28 +481,32 @@ print_summary() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 main() {
+  local flowkey_cmd
+
   log "${APP_NAME} Linux Installer"
-  if [[ "$INSTALL_MODE" == "venv" ]]; then
-    log "Mode: venv (${VENV_PATH})"
-  else
-    log "Mode: ${INSTALL_MODE}"
-  fi
+  log "Mode: ${INSTALL_MODE}"
   echo
 
-  # System-level setup (requires sudo) — skip for --user and --venv
-  if [[ "$INSTALL_MODE" == "system" ]]; then
-    install_system_packages
-    setup_groups
-    setup_udev
+  if [[ "$FLOWKEY_SKIP_SYSTEM_SETUP" == "1" ]]; then
+    log "Skipping system packages, groups, and udev setup (test override)."
+  elif run_privileged true >/dev/null 2>&1; then
+    install_system_packages || warn "Some system packages may be missing."
+    setup_groups || warn "Could not update user groups."
+    setup_udev || warn "Could not install udev rules."
   else
-    log "Skipping system packages, groups, and udev (${INSTALL_MODE} mode)."
-    log "Install system deps manually if needed: xdotool, ydotool, wl-clipboard, libnotify-bin"
+    warn "No sudo available; skipping package manager, group, and udev setup."
   fi
 
-  ensure_icon
-  run_pip_install
+  if [[ "$INSTALL_MODE" == "from-source" ]]; then
+    run_source_install
+  else
+    install_binary_release
+  fi
+
   create_tui_desktop_entry
-  run_flowkey_install
+  flowkey_cmd="$(resolve_flowkey_command)"
+  log "Running Flowkey bootstrap via ${flowkey_cmd} install..."
+  "$flowkey_cmd" install || warn "flowkey install reported issues (check above)."
   print_summary
 }
 

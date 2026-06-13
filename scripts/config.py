@@ -329,7 +329,7 @@ _SEED_CONFIG: dict | None = None
 def _seed_config_dict() -> dict:
     """Return the shipped seed config as a flat dict (cached).
 
-    The seed config (``scripts/_data/config.json``) is the single source of
+    The seed config (``scripts/config.seed.json``) is the single source of
     truth for default values — especially modes, which define the app's
     built-in features (grammar, prompt, summarize, explain, tone).  User
     overrides are merged on top at load time.
