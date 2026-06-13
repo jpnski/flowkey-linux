@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Shared launcher helpers for Flowkey command invocation."""
+
+from __future__ import annotations
 
 import shutil
 import sys

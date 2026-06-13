@@ -699,7 +699,7 @@ def process_selection() -> None:
         return
 
     try:
-    output_text = _run_mode_transform_subprocess(mode, infile, outfile)
+        output_text = _run_mode_transform_subprocess(mode, infile, outfile)
         if output_text is None:
             return
 

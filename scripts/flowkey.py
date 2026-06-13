@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """Single top-level Flowkey CLI dispatcher."""
+
+from __future__ import annotations
 
 import importlib
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 COMMANDS: dict[str, tuple[str, str, str]] = {
     "daemon": ("daemon", "main", "Start the action daemon"),
