@@ -9,16 +9,30 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 
-_SANITIZED_ENV_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD")
+
+def _bundle_internal_dir() -> Path | None:
+    if not getattr(sys, "frozen", False):
+        return None
+    return Path(sys.executable).resolve().parent / "_internal"
 
 
 def _flm_child_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return an env mapping safe for invoking the system `flm` CLI."""
     child_env = dict(os.environ if env is None else env)
-    for key in _SANITIZED_ENV_VARS:
-        child_env.pop(key, None)
+    bundle_dir = _bundle_internal_dir()
+    if bundle_dir is not None:
+        bundle_text = str(bundle_dir)
+        ld_path = child_env.get("LD_LIBRARY_PATH")
+        if ld_path:
+            parts = [part for part in ld_path.split(":") if part and part != bundle_text]
+            if parts:
+                child_env["LD_LIBRARY_PATH"] = ":".join(parts)
+            else:
+                child_env.pop("LD_LIBRARY_PATH", None)
     return child_env
 
 

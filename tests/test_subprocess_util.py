@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import subprocess_util
@@ -14,6 +15,7 @@ def test_run_flm_strips_bundle_library_path(monkeypatch):
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess_util.subprocess, "run", _fake_run)
+    monkeypatch.setattr(subprocess_util, "_bundle_internal_dir", lambda: Path("/home/j/.local/opt/flowkey/current/_internal"))
 
     env = {
         "CUSTOM": "1",
@@ -24,7 +26,7 @@ def test_run_flm_strips_bundle_library_path(monkeypatch):
     subprocess_util.run_flm(["flm", "version"], env=env)
 
     assert capture["argv"] == ["flm", "version"]
-    assert capture["env"] == {"CUSTOM": "1"}
+    assert capture["env"] == {"CUSTOM": "1", "LD_PRELOAD": "libsomething.so"}
     assert env["LD_LIBRARY_PATH"] == "/home/j/.local/opt/flowkey/current/_internal"
 
 
@@ -37,14 +39,15 @@ def test_popen_flm_strips_bundle_library_path(monkeypatch):
         return SimpleNamespace(pid=12345)
 
     monkeypatch.setattr(subprocess_util.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(subprocess_util, "_bundle_internal_dir", lambda: Path("/home/j/.local/opt/flowkey/current/_internal"))
 
     env = {
         "PATH": "/usr/bin",
-        "LD_LIBRARY_PATH": "/home/j/.local/opt/flowkey/current/_internal",
+        "LD_LIBRARY_PATH": "/home/j/.local/opt/flowkey/current/_internal:/opt/xilinx/xrt/lib",
     }
 
     proc = subprocess_util.popen_flm(["flm", "pull", "gemma4-it:e4b"], env=env)
 
     assert proc.pid == 12345
     assert capture["argv"] == ["flm", "pull", "gemma4-it:e4b"]
-    assert capture["env"] == {"PATH": "/usr/bin"}
+    assert capture["env"] == {"PATH": "/usr/bin", "LD_LIBRARY_PATH": "/opt/xilinx/xrt/lib"}
