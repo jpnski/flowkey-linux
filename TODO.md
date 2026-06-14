@@ -141,7 +141,7 @@ Each item is a single self-contained change. Items are in chronological order. I
   - `shutdown()`: kill child processes (daemon, chat) via process group SIGTERM, stop all background threads
   - Register `shutdown()` as `atexit` handler and signal handler
 
-> **Port-source note:** The Phase 3 item descriptions above reference `.ahk` files (e.g., `lib/mode_prefix.ahk`, `lib/clipboard.ahk`) to document which original AutoHotkey file was ported for each function. All actual "AHK" terminology in source code has been renamed to neutral terms (`shortcut_to_ahk` → `shortcut_to_compact`, `_ahk_to_human` → `_shortcut_to_human`, `AHK syntax` → `Key notation`, etc.) — zero AHK references remain in the codebase.
+> **Port-source note:** The Phase 3 item descriptions above reference `.ahk` files (e.g., `lib/mode_prefix.ahk`, `lib/clipboard.ahk`) to document which original AutoHotkey file was ported for each function. All actual "AHK" terminology in source code has been renamed to neutral terms, and zero AHK references remain in the codebase.
 
 ---
 
@@ -349,3 +349,13 @@ The tkinter-based chat popup (`chat_popup.py`) and dashboard (`dashboard.py`) ar
 - [x] **87.** Set up GitHub Actions release workflow — on tag push, build PyInstaller binaries for x86_64 + aarch64, upload as release assets.
 
 - [x] **88.** Rewrite README installation docs for the binary release flow — document the `curl -fsSL ... | bash` install path, `~/.local/bin` expectations, and the supported `--from-source` fallback for contributors.
+
+## Misc Fixes
+
+- [x] **89.** Split hotkey configuration into two explicit groups in `config.json` and the repo seed config: `transform_hotkeys` for text transforms (`grammar`, `prompt`, `summarize`, `explain`, `tone`) and `interaction_hotkeys` for app actions (`open_chat`, `ask_chat`, `capture_note`). Remove the old duplicated/ambiguous hotkey fields from `modes` once the new groups exist.
+
+- [x] **90.** Update the TUI `ConfigPane` hotkey editor so every hotkey is editable in the UI, either as separate sections for transform hotkeys and interaction hotkeys or as one expanded hotkey panel with clear grouping.
+
+- [x] **91.** Update listener/daemon hotkey loading, registration, and config snapshot plumbing to consume the new hotkey groups and preserve the current runtime behavior for selection transforms, chat launch, and note capture.
+
+- [x] **92.** Add/adjust tests and docs for the hotkey refactor so the new TUI-configurable hotkey model is verified end-to-end and the old ambiguous bindings are gone.

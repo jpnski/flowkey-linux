@@ -1,8 +1,8 @@
 # Flowkey — Linux Port
 #
-#   pip install .                # production
-#   pip install -e .             # editable, for development
+#   binary installer             # production / deployed
 #   python -m build --wheel      # produces dist/flowkey-X.Y.Z-py3-none-any.whl
+#   pip install -e .[dev]        # optional, for local development
 #
 # After install, a single `flowkey` command lands in your PATH.
 
@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "flowkey"
-version = "2.0.0-dev"
+version = "0.0.1"
 description = "Local-LLM-powered grammar fix, prompt rewrite, chat, and dashboard for Linux."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,7 +63,6 @@ Issues = "https://github.com/jpnski/flowkey-linux/issues"
 flowkey = "flowkey:main"
 
 [tool.setuptools]
-include-package-data = true
 package-dir = { "" = "scripts" }
 packages = { find = { where = ["scripts"], include = ["tui*"] } }
 py-modules = [

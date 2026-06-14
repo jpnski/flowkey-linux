@@ -36,7 +36,7 @@ import pyperclip
 # ---------------------------------------------------------------------------
 
 CONFIG: dict = {}
-HOTKEY_BINDINGS: dict[str, str] = {}  # action_name -> human-readable hotkey (e.g. "ctrl+alt+g")
+HOTKEY_BINDINGS: dict[str, str] = {}  # action_name -> human-readable hotkey
 FLM_TIMEOUT_SECONDS: int = 60
 DAEMON_BASE_URL: str = loopback_http.DAEMON_BASE_URL
 API_VERSION: str = loopback_http.DAEMON_API_VERSION
@@ -91,8 +91,15 @@ def _ensure_logging() -> None:
 # Item 11 — Config loader
 # ===================================================================
 
-DEFAULT_HOTKEYS: dict[str, str] = {
-    "grammar_fix": "ctrl+alt+g",
+DEFAULT_TRANSFORM_HOTKEYS: dict[str, str] = {
+    "grammar": "Ctrl+Shift+G",
+    "prompt": "Ctrl+Shift+P",
+    "summarize": "Ctrl+Shift+S",
+    "explain": "Ctrl+Shift+E",
+    "tone": "Ctrl+Shift+T",
+}
+
+DEFAULT_INTERACTION_HOTKEYS: dict[str, str] = {
     "open_chat": "ctrl+alt+t",
     "capture_note": "ctrl+alt+n",
     "ask_chat": "ctrl+alt+a",
@@ -114,12 +121,19 @@ def read_config() -> dict:
     cfg = _cfg.load_config(_paths.CONFIG_FILE)
     CONFIG = cfg
 
-    # Read hotkey bindings from config
-    hk = cfg.hotkeys
-    merged: dict[str, str] = {}
-    for action, default_key in DEFAULT_HOTKEYS.items():
-        merged[action] = str(getattr(hk, action, default_key))
-    HOTKEY_BINDINGS = merged
+    # Read hotkey bindings from config.
+    transform = cfg.transform_hotkeys
+    interaction = cfg.interaction_hotkeys
+    HOTKEY_BINDINGS = {
+        "grammar": str(getattr(transform, "grammar", DEFAULT_TRANSFORM_HOTKEYS["grammar"])),
+        "prompt": str(getattr(transform, "prompt", DEFAULT_TRANSFORM_HOTKEYS["prompt"])),
+        "summarize": str(getattr(transform, "summarize", DEFAULT_TRANSFORM_HOTKEYS["summarize"])),
+        "explain": str(getattr(transform, "explain", DEFAULT_TRANSFORM_HOTKEYS["explain"])),
+        "tone": str(getattr(transform, "tone", DEFAULT_TRANSFORM_HOTKEYS["tone"])),
+        "open_chat": str(getattr(interaction, "open_chat", DEFAULT_INTERACTION_HOTKEYS["open_chat"])),
+        "capture_note": str(getattr(interaction, "capture_note", DEFAULT_INTERACTION_HOTKEYS["capture_note"])),
+        "ask_chat": str(getattr(interaction, "ask_chat", DEFAULT_INTERACTION_HOTKEYS["ask_chat"])),
+    }
 
     FLM_TIMEOUT_SECONDS = cfg.flm_api.timeout_s
     return cfg
@@ -677,7 +691,7 @@ def _cleanup_temp(*paths: str | None) -> None:
                 pass
 
 
-def process_selection() -> None:
+def process_selection(default_mode: str = "grammar") -> None:
     """Main hotkey handler: capture selection, process, paste back."""
     captured = clipboard_capture()
     if not captured:
@@ -685,6 +699,8 @@ def process_selection() -> None:
         return
 
     mode, body = parse_mode_and_text(captured)
+    if mode == "grammar" and default_mode != "grammar":
+        mode = default_mode
     if not body:
         notify("Flowkey", f"No text remaining after '{mode}:' prefix" if mode != "grammar" else "No text selected")
         return
@@ -1021,15 +1037,16 @@ def clipboard_watcher() -> None:
         last_fire = now
 
         # Build hint notification
-        grammar_hotkey = HOTKEY_BINDINGS.get("grammar_fix", "ctrl+alt+g")
-        human_hotkey = _shortcut_to_human(grammar_hotkey)
+        transform_hotkey = str(
+            HOTKEY_BINDINGS.get("grammar", DEFAULT_TRANSFORM_HOTKEYS["grammar"])
+        ).strip()
 
         if kind == "url":
-            notify("URL detected", f"Prefix with 'summarize:', select all + {human_hotkey}")
+            notify("URL detected", f"Prefix with 'summarize:', select all + {transform_hotkey}")
         elif kind == "stacktrace":
-            notify("Stack trace detected", f"Prefix with 'explain:', select all + {human_hotkey}")
+            notify("Stack trace detected", f"Prefix with 'explain:', select all + {transform_hotkey}")
         elif kind == "code":
-            notify("Code snippet detected", f"Prefix with 'explain:', select all + {human_hotkey}")
+            notify("Code snippet detected", f"Prefix with 'explain:', select all + {transform_hotkey}")
 
         _shutdown_event.wait(1.0)
 
@@ -1085,25 +1102,14 @@ def dashboard_poll_loop() -> None:
 # ===================================================================
 
 
-def _shortcut_to_human(shortcut: str) -> str:
-    """Convert a hotkey string to human-readable display form.
+def _hotkey_to_pynput(hotkey: str) -> str:
+    """Convert a readable hotkey string to pynput GlobalHotKeys format.
 
-    Handles human-readable ('ctrl+alt+g' -> 'Ctrl+Alt+G') format.
+    'Ctrl+Alt+G' -> <ctrl>+<alt>+g
+    'Ctrl+Alt+T' -> <ctrl>+<alt>+t
+    'Ctrl+Super+A' -> <ctrl>+<win>+a
     """
-    raw = (shortcut or "").strip()
-
-    parts = [p.strip().capitalize() for p in raw.split("+") if p.strip()]
-    return "+".join(parts)
-
-
-def _shortcut_to_pynput(shortcut: str) -> str:
-    """Convert a hotkey string to pynput GlobalHotKeys format.
-
-    'ctrl+alt+g' -> <ctrl>+<alt>+g
-    'ctrl+alt+t' -> <ctrl>+<alt>+t
-    'ctrl+super+a' -> <ctrl>+<win>+a
-    """
-    raw = (shortcut or "").strip().lower()
+    raw = (hotkey or "").strip().lower()
     mod_map = {"ctrl": "<ctrl>", "super": "<win>", "alt": "<alt>"}
 
     parts = [p.strip() for p in raw.split("+") if p.strip()]
@@ -1135,7 +1141,7 @@ def _register_x11_hotkeys(handlers: dict[str, callable]) -> Any:
         key = HOTKEY_BINDINGS.get(action)
         if not key:
             continue
-        combo = _shortcut_to_pynput(key)
+        combo = _hotkey_to_pynput(key)
         combos[combo] = handler
 
     if not combos:
@@ -1170,7 +1176,7 @@ def _register_wayland_hotkeys(handlers: dict[str, callable]) -> threading.Thread
         key = HOTKEY_BINDINGS.get(action)
         if not key:
             continue
-        key_codes = _shortcut_to_evdev(key)
+        key_codes = _hotkey_to_evdev(key)
         if key_codes:
             combo_map.append((action, key_codes, handler))
 
@@ -1188,10 +1194,10 @@ def _register_wayland_hotkeys(handlers: dict[str, callable]) -> threading.Thread
     return thread
 
 
-def _shortcut_to_evdev(shortcut: str) -> set[int]:
-    """Convert a hotkey string to a set of evdev key codes.
+def _hotkey_to_evdev(hotkey: str) -> set[int]:
+    """Convert a readable hotkey string to a set of evdev key codes.
 
-    Accepts human-readable ('ctrl+alt+g') format.
+    Accepts human-readable ('Ctrl+Alt+G') format.
     """
     from evdev import ecodes
 
@@ -1201,7 +1207,7 @@ def _shortcut_to_evdev(shortcut: str) -> set[int]:
         "alt":   {ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT},
     }
 
-    raw = (shortcut or "").strip().lower()
+    raw = (hotkey or "").strip().lower()
     codes: set[int] = set()
     key_char = ""
 
@@ -1340,8 +1346,19 @@ def _evdev_monitor_loop(combo_map: list[tuple[str, set[int], callable]]) -> None
         log.info("evdev monitoring stopped")
 
 
+def _transform_handler(mode: str):
+    def _handler() -> None:
+        process_selection(mode)
+
+    return _handler
+
+
 _HOTKEY_HANDLERS: dict[str, callable] = {
-    "grammar_fix": process_selection,
+    "grammar": _transform_handler("grammar"),
+    "prompt": _transform_handler("prompt"),
+    "summarize": _transform_handler("summarize"),
+    "explain": _transform_handler("explain"),
+    "tone": _transform_handler("tone"),
     "capture_note": capture_note,
     "open_chat": launch_chat,
     "ask_chat": ask_with_selection,

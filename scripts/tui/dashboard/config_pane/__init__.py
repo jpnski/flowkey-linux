@@ -83,9 +83,12 @@ class ConfigPane(Pane):
         flm_runtime_data = flm_version_resp.get("result") if flm_version_resp.get("ok") else {}
 
         # Pass hotkeys to HotkeysPanel.
-        hotkeys: dict[str, str] = {}
+        transform_hotkeys: dict[str, str] = {}
+        interaction_hotkeys: dict[str, str] = {}
         if config_resp.get("ok"):
-            hotkeys = dict((config_resp.get("result") or {}).get("hotkeys") or {})
+            cfg = config_resp.get("result") or {}
+            transform_hotkeys = dict(cfg.get("transform_hotkeys") or {})
+            interaction_hotkeys = dict(cfg.get("interaction_hotkeys") or {})
 
         # Pass input_processing config to InputProcessingPanel.
         input_processing_cfg: dict = {}
@@ -93,20 +96,20 @@ class ConfigPane(Pane):
             input_processing_cfg = dict((config_resp.get("result") or {}).get("input_processing") or {})
 
         # Update sub-panels (data-ingestion, not a render).
-        self.call_later(self._update_hotkeys_panel, hotkeys)
+        self.call_later(self._update_hotkeys_panel, transform_hotkeys, interaction_hotkeys)
         self.call_later(self._update_input_processing_panel, input_processing_cfg)
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded, flm_runtime_data)
         self.call_later(self._update_server_panel, server_cfg)
         self.call_later(self._update_chat_panel, chat_cfg)
 
-    def _update_hotkeys_panel(self, hotkeys: dict) -> None:
+    def _update_hotkeys_panel(self, transform_hotkeys: dict, interaction_hotkeys: dict) -> None:
         try:
             panel = self.query_one(HotkeysPanel)
         except Exception as exc:
             log.warning("hotkeys panel not ready: %s", exc)
             return
-        panel.update_hotkeys(hotkeys)
+        panel.update_hotkeys(transform_hotkeys, interaction_hotkeys)
 
     def _update_input_processing_panel(self, cfg: dict) -> None:
         try:

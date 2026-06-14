@@ -1,4 +1,4 @@
-"""Hotkeys panel — interactive modifier + letter selectors for global hotkeys."""
+"""Hotkeys panel — editable transform and interaction hotkeys."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.events import Click
 from textual.widgets import Input, Static
 
 from tui.dashboard import DashboardWidget
@@ -17,62 +16,32 @@ from tui.dashboard._daemon import _daemon_post
 
 log = logging.getLogger("flowkey.tui.dashboard")
 
-# (label, config_key)
-_HOTKEY_ACTIONS: list[tuple[str, str]] = [
-    ("Ask model",    "ask_chat"),
-    ("Grammar fix",  "grammar_fix"),
-    ("Capture note", "capture_note"),
+_HOTKEY_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
+    (
+        "transform_hotkeys",
+        "Transform hotkeys",
+        [
+            ("grammar", "Grammar fix"),
+            ("prompt", "Prompt fix (Claude)"),
+            ("summarize", "Summarize"),
+            ("explain", "Explain code/regex/SQL"),
+            ("tone", "Tone shift"),
+        ],
+    ),
+    (
+        "interaction_hotkeys",
+        "Interaction hotkeys",
+        [
+            ("open_chat", "Open chat"),
+            ("ask_chat", "Ask model"),
+            ("capture_note", "Capture note"),
+        ],
+    ),
 ]
-
-_MOD_OPTIONS: list[str] = ["ctrl", "super", "alt"]
-
-# Build widget ID -> (action, slot) lookup.
-_WIDGET_MAP: dict[str, tuple[str, int]] = {}
-for _label, action in _HOTKEY_ACTIONS:
-    _WIDGET_MAP[f"hk-{action}-mod1"] = (action, 1)
-    _WIDGET_MAP[f"hk-{action}-mod2"] = (action, 2)
-
-
-def _parse_hotkey(raw: str) -> tuple[str, str, str]:
-    """Parse a hotkey string into (mod1, mod2, letter).
-
-    Accepts human-readable ('ctrl+alt+g') format.
-    Returns ('ctrl', 'ctrl', '') as fallback.
-    """
-    s = (raw or "").strip().lower()
-    parts = [p.strip() for p in s.split("+") if p.strip()]
-    known_mods = {"ctrl", "super", "alt"}
-    mods = []
-    letter = ""
-    for p in parts:
-        if p in known_mods:
-            mods.append(p)
-        elif p.isalnum() and not letter:
-            letter = p
-    mod1 = mods[0] if len(mods) > 0 else "ctrl"
-    mod2 = mods[1] if len(mods) > 1 else mods[0] if len(mods) == 1 else "ctrl"
-    return (mod1, mod2, letter)
-
-
-def _format_hotkey(mod1: str, mod2: str, letter: str) -> str:
-    """Build a human-readable hotkey string from modifier names and letter."""
-    parts = [mod1, mod2]
-    if letter:
-        parts.append(letter.lower())
-    return "+".join(parts)
 
 
 class HotkeysPanel(Vertical):
-    """Interactive hotkey editor — three columns, each with mod1/mod2 + letter.
-
-    Columns: Ask model | Grammar fix | Capture note
-    Each column has a label and an input row:
-      [mod1] [mod2] [letter]
-    where mod1/mod2 cycle through ctrl / super / alt on click.
-
-    Mod changes are saved immediately.  Letter changes are saved when the
-    user presses Enter in the letter input.
-    """
+    """Editable hotkey editor grouped by transform vs interaction actions."""
 
     DEFAULT_CSS = """
     HotkeysPanel {
@@ -81,159 +50,94 @@ class HotkeysPanel(Vertical):
         padding: 0 1;
         margin: 0;
     }
-    .hk-cols {
-        height: auto;
-    }
-    .hk-col {
-        width: 33.33%;
-        height: auto;
-        padding: 0 1;
-    }
-    .hk-label {
-        color: $text-muted;
-        margin-top: 1;
-        margin-bottom: 0;
-    }
-    .hk-input-row {
-        height: 3;
-        align: left middle;
-    }
-    .hk-mod {
-        width: 8;
-        height: 3;
-        border: tall $border-blurred;
-        background: $surface;
-        content-align: center middle;
-        color: $text;
-        margin-right: 1;
-    }
-    .hk-mod:hover {
-        background: $accent;
-    }
-    .hk-letter {
-        width: 8;
-    }
     HotkeysPanel > .panel-header {
         margin-top: 1;
         margin-bottom: 0;
+    }
+    .hk-section {
+        height: auto;
+        margin-top: 1;
+    }
+    .hk-section-title {
+        color: $text-muted;
+        text-style: italic;
+        margin-top: 0;
+        margin-bottom: 0;
+    }
+    .hk-row {
+        height: 3;
+        align: left middle;
+        margin-top: 0;
+    }
+    .hk-row-label {
+        width: 20;
+        color: $text-muted;
+        margin-right: 1;
+    }
+    .hk-input {
+        width: 26;
     }
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._values: dict[str, tuple[str, str, str]] = {}
-        # Letters the user has intentionally set — never overwritten by refresh.
-        self._user_letters: dict[str, str] = {}
+        self._values: dict[tuple[str, str], str] = {}
 
     def compose(self) -> ComposeResult:
         yield Static("Hotkeys", classes="panel-header")
-        with Horizontal(classes="hk-cols"):
-            for label, action in _HOTKEY_ACTIONS:
-                with Vertical(classes="hk-col"):
-                    yield Static(label, classes="hk-label")
-                    with Horizontal(classes="hk-input-row"):
-                        yield Static("ctrl", id=f"hk-{action}-mod1", classes="hk-mod")
-                        yield Static("ctrl", id=f"hk-{action}-mod2", classes="hk-mod")
-                        yield Input(
-                            value="",
-                            id=f"hk-{action}-letter",
-                            classes="hk-letter",
-                        )
+        for group, group_label, actions in _HOTKEY_GROUPS:
+            with Vertical(classes="hk-section"):
+                yield Static(group_label, classes="hk-section-title")
+                for action, label in actions:
+                    with Horizontal(classes="hk-row"):
+                        yield Static(label, classes="hk-row-label")
+                        yield Input(value="", id=f"hk-{group}--{action}", classes="hk-input")
 
     # ---- Data ingestion (called by ConfigPane) ----
 
-    def update_hotkeys(self, hotkeys: dict[str, str]) -> None:
-        """Populate the three hotkey rows from a {action: hotkey_string} dict.
-
-        Preserves letters the user has explicitly set (stored in _user_letters).
-        The periodic ConfigPane refresh will NOT overwrite user-set letters.
-        """
-        for _label, action in _HOTKEY_ACTIONS:
-            raw = hotkeys.get(action, "")
-            mod1, mod2, letter = _parse_hotkey(raw)
-            # Preserve user-set letter.
-            if action in self._user_letters:
-                letter = self._user_letters[action]
-            self._values[action] = (mod1, mod2, letter)
-            try:
-                self.query_one(f"#hk-{action}-mod1", Static).update(mod1)
-                self.query_one(f"#hk-{action}-mod2", Static).update(mod2)
-                inp = self.query_one(f"#hk-{action}-letter", Input)
-                inp.value = letter
-            except Exception as exc:
-                log.warning("could not update hotkey display for %s: %s", action, exc)
-
-    # ---- Event handlers ----
-
-    def on_click(self, event: Click) -> None:
-        """Cycle a modifier on click — instant UI, fire-and-forget daemon save."""
-        wid = str(event.widget.id or "")
-        match = _WIDGET_MAP.get(wid)
-        if match is None:
-            return
-        action, slot = match
-
-        mod1, mod2, letter = self._values.get(action, ("ctrl", "ctrl", ""))
-        old_hotkey = _format_hotkey(mod1, mod2, letter)
-        current = mod1 if slot == 1 else mod2
-        idx = _MOD_OPTIONS.index(current) if current in _MOD_OPTIONS else 0
-        next_idx = (idx + 1) % len(_MOD_OPTIONS)
-        new_mod = _MOD_OPTIONS[next_idx]
-
-        if slot == 1:
-            mod1 = new_mod
-        else:
-            mod2 = new_mod
-        self._values[action] = (mod1, mod2, letter)
-
-        try:
-            event.widget.update(new_mod)
-        except Exception as exc:
-            log.warning("could not update hotkey widget: %s", exc)
-
-        # Persist with correct old value for revert-on-failure.
-        hotkey_str = _format_hotkey(mod1, mod2, letter)
-        self.run_worker(
-            partial(self._do_save, action, hotkey_str, old_hotkey),
-            exclusive=True,
-        )
+    def update_hotkeys(self, transform_hotkeys: dict[str, str], interaction_hotkeys: dict[str, str]) -> None:
+        """Populate the editor from the config snapshot."""
+        for group, _group_label, actions in _HOTKEY_GROUPS:
+            source = transform_hotkeys if group == "transform_hotkeys" else interaction_hotkeys
+            for action, _label in actions:
+                raw = str(source.get(action, ""))
+                self._values[(group, action)] = raw
+                try:
+                    self.query_one(f"#hk-{group}--{action}", Input).value = raw
+                except Exception as exc:
+                    log.warning("could not update hotkey display for %s/%s: %s", group, action, exc)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Save hotkey when the user presses Enter in the letter input."""
+        """Save hotkey when the user presses Enter in an input field."""
         input_id = str(event.input.id or "")
-        if not input_id.endswith("-letter"):
+        if not input_id.startswith("hk-") or "--" not in input_id:
             return
-        action = input_id[3:-7]
-        if action not in {a for _, a in _HOTKEY_ACTIONS}:
-            return
-
-        raw = event.value.strip().lower()
-        filtered = "".join(ch for ch in raw if ch.isalnum())[:1]
-        if filtered:
-            event.input.value = filtered
-        else:
+        body = input_id[3:]
+        group, action = body.split("--", 1)
+        if group not in {g for g, _title, _actions in _HOTKEY_GROUPS}:
             return
 
-        mod1, mod2, _letter = self._values.get(action, ("ctrl", "ctrl", ""))
-        if filtered == _letter:
+        raw = event.value.strip()
+        if not raw:
+            return
+
+        current = self._values.get((group, action), "")
+        if raw == current:
             return  # unchanged
-        self._values[action] = (mod1, mod2, filtered)
-        self._user_letters[action] = filtered
 
-        hotkey_str = _format_hotkey(mod1, mod2, filtered)
-        old_hotkey = _format_hotkey(mod1, mod2, _letter)
+        self._values[(group, action)] = raw
         self.run_worker(
-            partial(self._do_save, action, hotkey_str, old_hotkey),
+            partial(self._do_save, group, action, raw, current),
             exclusive=True,
         )
 
     # ---- Persist ----
 
-    async def _do_save(self, action: str, hotkey_str: str, old_hotkey: str) -> None:
+    async def _do_save(self, group: str, action: str, hotkey_str: str, old_hotkey: str) -> None:
         try:
             resp = await asyncio.to_thread(
                 _daemon_post, "apply_config_patch",
-                {"patch": {"hotkeys": {action: hotkey_str}}},
+                {"patch": {group: {action: hotkey_str}}},
                 timeout=2.0,
             )
         except asyncio.CancelledError:
@@ -249,13 +153,9 @@ class HotkeysPanel(Vertical):
             except Exception as exc:
                 log.warning("could not refresh dashboard after hotkey save: %s", exc)
         else:
-            mod1, mod2, letter = _parse_hotkey(old_hotkey)
-            self._values[action] = (mod1, mod2, letter)
+            self._values[(group, action)] = old_hotkey
             try:
-                self.query_one(f"#hk-{action}-mod1", Static).update(mod1)
-                self.query_one(f"#hk-{action}-mod2", Static).update(mod2)
-                inp = self.query_one(f"#hk-{action}-letter", Input)
-                inp.value = letter
+                self.query_one(f"#hk-{group}--{action}", Input).value = old_hotkey
             except Exception as exc:
                 log.warning("could not revert hotkey display after error: %s", exc)
             self.app.notify(

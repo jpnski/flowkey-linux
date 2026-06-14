@@ -115,8 +115,6 @@ def seed_config_if_missing() -> bool:
     """
     if CONFIG_FILE.exists():
         return False
-    if not CONFIG_SEED_FILE.exists():
-        return False
     ensure_dirs()
     CONFIG_FILE.write_bytes(CONFIG_SEED_FILE.read_bytes())
     return True

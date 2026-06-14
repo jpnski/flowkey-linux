@@ -1,7 +1,7 @@
 """Flowkey Linux installer.
 
-Run after `pip install .` or `flowkey install` has placed the package on disk.
-Handles the parts pip can't:
+Run after the binary installer or a source checkout setup has placed Flowkey on disk.
+Handles the parts the desktop session can't:
 
 - System dependency checks (xdotool, ydotool, notify-send, etc.)
 - Config bootstrap (copy example → live)

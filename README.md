@@ -6,7 +6,7 @@ Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow).
 
 ## Features
 
-- **Global hotkeys** - Select text anywhere, press a shortcut, and Flowkey rewrites it in place with grammar, summarize, explain, prompt, or tone modes.
+- **Global hotkeys** - Two kinds of hotkeys are available: text transforms rewrite the current selection in place, while interaction hotkeys open chat or save the current selection into notes.
 - **Clipboard watcher** - Optional background hints for copied URLs, code, and stack traces.
 - **Streaming TUI chat** - Chat with the local model from a terminal UI with slash commands and conversation history.
 - **Dashboard** - Inspect runtime status, telemetry, benchmarks, notes, hotkeys, model settings, and input-processing controls.
@@ -117,6 +117,21 @@ Flowkey uses a single `config.json`, but the path depends on how it is launched:
 | Deployed binary | `~/.local/share/Flowkey/config.json` | `~/.local/share/Flowkey/data/` | `~/.local/share/Flowkey/logs/` |
 
 The TUI manages the common settings most users touch often: model selection, hotkeys, performance mode, autostart, and input-processing options. The same file also stores lower-level values such as the FLM server URL, request timeout, chunking thresholds, and other defaults that are usually left alone.
+
+### Hotkeys
+
+Flowkey separates hotkeys into two user-facing groups so their behavior stays predictable:
+
+| Group | What it does | User flow |
+|---|---|---|
+| `transform_hotkeys` | `grammar`, `prompt`, `summarize`, `explain`, `tone` | Flowkey captures the current selection, runs the selected transform, then pastes the result back into the original app. If the selected text starts with a mode prefix like `prompt:` or `explain:`, that mode is used instead. |
+| `interaction_hotkeys` | `open_chat`, `ask_chat`, `capture_note` | Flowkey launches the TUI chat, sends the current selection to chat, or saves text into notes. These actions do not replace text in place. |
+
+From the user perspective:
+
+- Transform hotkeys are for editing text in place. Select text anywhere, press the hotkey, and Flowkey copies the selection, runs the transform, and pastes the rewritten text back.
+- Interaction hotkeys are for moving text into another Flowkey surface. `open_chat` brings up the TUI, `ask_chat` sends the selection to chat, and `capture_note` stores the selection as a note.
+- The same hotkeys are editable in the TUI Config pane, so you can choose bindings that fit your desktop and keyboard layout.
 
 ## Architecture
 

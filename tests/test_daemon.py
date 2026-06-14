@@ -43,7 +43,7 @@ def daemon_server(daemon_module):
 
 
 def test_actions_count_and_expected_names(daemon_module):
-    assert len(daemon_module.ACTIONS) == 49
+    assert len(daemon_module.ACTIONS) == 47
     assert "version" in daemon_module.ACTIONS
     assert "apply_config_patch" in daemon_module.ACTIONS
     assert "chat_send_selection" in daemon_module.ACTIONS
@@ -59,6 +59,8 @@ def test_actions_count_and_expected_names(daemon_module):
     assert "pull_start" in daemon_module.ACTIONS
     assert "pull_status" in daemon_module.ACTIONS
     assert "pull_cancel" in daemon_module.ACTIONS
+    assert "update_check" not in daemon_module.ACTIONS
+    assert "update_apply" not in daemon_module.ACTIONS
     assert "model_stats" not in daemon_module.ACTIONS
 
 
@@ -164,7 +166,8 @@ def test_post_config_snapshot_returns_flat_dashboard_fields(daemon_server):
         "input_processing",
         "notes",
         "chat",
-        "hotkeys",
+        "transform_hotkeys",
+        "interaction_hotkeys",
     }
     notes = payload["result"]["notes"]
     assert isinstance(notes.get("categories"), list)
@@ -347,5 +350,3 @@ def test_send_json_safely_returns_true_on_normal_send(daemon_module):
     handler._send_json = lambda status, body: sent.append((status, body))  # type: ignore[method-assign]
     assert handler._send_json_safely(200, {"ok": True, "result": "x"}) is True
     assert sent == [(200, {"ok": True, "result": "x"})]
-
-

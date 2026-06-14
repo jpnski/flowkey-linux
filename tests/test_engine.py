@@ -21,16 +21,20 @@ def test_load_config_merges_nested_sections(fresh_modules):
     engine = fresh_modules("engine")
     engine.CONFIG_PATH.write_text(
         json.dumps(
-            {
-                "flm_server": {"model": "custom:model", "auto_start": False},
-                "input_processing": {"chunk_size": 900},
-                "grammar_ignore_words": ["Flowkey"],
-                "modes": {
-                    "grammar": {"shortcut": "Ctrl+Alt+G", "label": "Grammar fix", "description": "", "system_prompt": "", "max_tokens": {"short": 160, "medium": 220, "long": 280}},
-                    "prompt": {"shortcut": "Ctrl+Shift+P", "label": "Prompt fix", "description": "", "system_prompt": "test prompt", "max_tokens": {"short": 300, "medium": 500, "long": 700}},
-                },
-            }
-        ),
+                {
+                    "flm_server": {"model": "custom:model", "auto_start": False},
+                    "input_processing": {"chunk_size": 900},
+                    "grammar_ignore_words": ["Flowkey"],
+                    "transform_hotkeys": {
+                        "grammar": "Ctrl+Alt+G",
+                        "prompt": "Ctrl+Shift+P",
+                    },
+                    "modes": {
+                        "grammar": {"label": "Grammar fix", "description": "", "system_prompt": "", "max_tokens": {"short": 160, "medium": 220, "long": 280}},
+                        "prompt": {"label": "Prompt fix", "description": "", "system_prompt": "test prompt", "max_tokens": {"short": 300, "medium": 500, "long": 700}},
+                    },
+                }
+            ),
         encoding="utf-8",
     )
 
@@ -41,8 +45,10 @@ def test_load_config_merges_nested_sections(fresh_modules):
     assert cfg.flm_server.power_mode == "balanced"
     assert cfg.input_processing.chunk_size == 900
     assert cfg.grammar_ignore_words == ["Flowkey"]
-    assert cfg.modes["grammar"].shortcut == "Ctrl+Alt+G"
-    assert cfg.modes["prompt"].shortcut == "Ctrl+Shift+P"
+    assert cfg.transform_hotkeys.grammar == "Ctrl+Alt+G"
+    assert cfg.transform_hotkeys.prompt == "Ctrl+Shift+P"
+    assert cfg.modes["grammar"].label == "Grammar fix"
+    assert cfg.modes["prompt"].system_prompt == "test prompt"
 
 
 def test_save_config_writes_utf8_json_with_newline(fresh_modules):
@@ -57,20 +63,15 @@ def test_save_config_writes_utf8_json_with_newline(fresh_modules):
     assert json.loads(raw)["theme"] == "hello 🙂"
 
 
-@pytest.mark.parametrize(
-    ("shortcut", "expected"),
-    [
-        ("Ctrl+Shift+G", "^+g"),
-        ("Alt+N", "!n"),
-        ("Win+T", "#t"),
-        ("", ""),
-        ("Ctrl + Shift + A", "^+a"),
-    ],
-)
-def test_shortcut_to_compact_translates_variants(fresh_modules, shortcut, expected):
+def test_list_hotkeys_prints_human_readable_shortcuts(fresh_modules, capsys):
     engine = fresh_modules("engine")
 
-    assert engine.shortcut_to_compact(shortcut) == expected
+    engine.list_hotkeys()
+
+    out = capsys.readouterr().out.splitlines()
+    assert any(line.startswith("grammar\tCtrl+Shift+G\t") for line in out)
+    assert any(line.startswith("prompt\tCtrl+Shift+P\t") for line in out)
+    assert all("^+" not in line and "!" not in line and "#" not in line for line in out)
 
 
 def test_normalize_output_cleans_smart_punctuation_and_spacing(fresh_modules):

@@ -122,19 +122,36 @@ class InputProcessingConfig:
 
 
 @dataclass
-class HotkeysConfig:
-    grammar_fix: str = "ctrl+alt+g"
-    open_chat: str = "ctrl+alt+t"
-    capture_note: str = "ctrl+alt+n"
-    ask_chat: str = "ctrl+alt+a"
+class TransformHotkeysConfig:
+    grammar: str = "Ctrl+Shift+G"
+    prompt: str = "Ctrl+Shift+P"
+    summarize: str = "Ctrl+Shift+S"
+    explain: str = "Ctrl+Shift+E"
+    tone: str = "Ctrl+Shift+T"
 
     @classmethod
-    def from_dict(cls, d: dict) -> HotkeysConfig:
+    def from_dict(cls, d: dict) -> TransformHotkeysConfig:
         return cls(
-            grammar_fix=str(d.get("grammar_fix", cls.grammar_fix)),
+            grammar=str(d.get("grammar", cls.grammar)),
+            prompt=str(d.get("prompt", cls.prompt)),
+            summarize=str(d.get("summarize", cls.summarize)),
+            explain=str(d.get("explain", cls.explain)),
+            tone=str(d.get("tone", cls.tone)),
+        )
+
+
+@dataclass
+class InteractionHotkeysConfig:
+    open_chat: str = "ctrl+alt+t"
+    ask_chat: str = "ctrl+alt+a"
+    capture_note: str = "ctrl+alt+n"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> InteractionHotkeysConfig:
+        return cls(
             open_chat=str(d.get("open_chat", cls.open_chat)),
-            capture_note=str(d.get("capture_note", cls.capture_note)),
             ask_chat=str(d.get("ask_chat", cls.ask_chat)),
+            capture_note=str(d.get("capture_note", cls.capture_note)),
         )
 
 
@@ -226,7 +243,6 @@ class ModeTonePresetsConfig:
 @dataclass
 class ToneModeConfig:
     label: str = "Tone shift"
-    shortcut: str = ""
     description: str = (
         "Rewrite in selected tone (use tone: prefix). "
         "Active preset cycles from the tray."
@@ -243,7 +259,6 @@ class ToneModeConfig:
     def from_dict(cls, d: dict) -> ToneModeConfig:
         return cls(
             label=str(d.get("label", cls.label)),
-            shortcut=str(d.get("shortcut", cls.shortcut)),
             description=str(d.get("description", cls.description)),
             system_prompt=str(d.get("system_prompt", cls.system_prompt)),
             max_tokens=MaxTokens.from_dict(d.get("max_tokens", {})),
@@ -255,7 +270,6 @@ class ToneModeConfig:
 @dataclass
 class StandardModeConfig:
     label: str = ""
-    shortcut: str = ""
     description: str = ""
     system_prompt: str = ""
     max_tokens: MaxTokens = field(default_factory=MaxTokens)
@@ -264,21 +278,9 @@ class StandardModeConfig:
     def from_dict(cls, d: dict) -> StandardModeConfig:
         return cls(
             label=str(d.get("label", cls.label)),
-            shortcut=str(d.get("shortcut", cls.shortcut)),
             description=str(d.get("description", cls.description)),
             system_prompt=str(d.get("system_prompt", cls.system_prompt)),
             max_tokens=MaxTokens.from_dict(d.get("max_tokens", {})),
-        )
-
-
-@dataclass
-class UpdateConfig:
-    feed_url: str = ""
-
-    @classmethod
-    def from_dict(cls, d: dict) -> UpdateConfig:
-        return cls(
-            feed_url=str(d.get("feed_url", cls.feed_url)),
         )
 
 
@@ -289,12 +291,12 @@ class FlowkeyConfig:
     flm_server: FlmServerConfig = field(default_factory=FlmServerConfig)
     input_processing: InputProcessingConfig = field(default_factory=InputProcessingConfig)
     grammar_ignore_words: list[str] = field(default_factory=list)
-    hotkeys: HotkeysConfig = field(default_factory=HotkeysConfig)
+    transform_hotkeys: TransformHotkeysConfig = field(default_factory=TransformHotkeysConfig)
+    interaction_hotkeys: InteractionHotkeysConfig = field(default_factory=InteractionHotkeysConfig)
     history: HistoryConfig = field(default_factory=HistoryConfig)
     notes: NotesConfig = field(default_factory=NotesConfig)
     chat: ChatConfig = field(default_factory=ChatConfig)
     modes: dict[str, StandardModeConfig | ToneModeConfig] = field(default_factory=dict)
-    update: UpdateConfig = field(default_factory=UpdateConfig)
 
     @classmethod
     def from_dict(cls, d: dict) -> FlowkeyConfig:
@@ -312,12 +314,12 @@ class FlowkeyConfig:
             flm_server=FlmServerConfig.from_dict(d.get("flm_server", {})),
             input_processing=InputProcessingConfig.from_dict(d.get("input_processing", {})),
             grammar_ignore_words=list(d.get("grammar_ignore_words", [])),
-            hotkeys=HotkeysConfig.from_dict(d.get("hotkeys", {})),
+            transform_hotkeys=TransformHotkeysConfig.from_dict(d.get("transform_hotkeys", {})),
+            interaction_hotkeys=InteractionHotkeysConfig.from_dict(d.get("interaction_hotkeys", {})),
             history=HistoryConfig.from_dict(d.get("history", {})),
             notes=NotesConfig.from_dict(d.get("notes", {})),
             chat=ChatConfig.from_dict(d.get("chat", {})),
             modes=modes,
-            update=UpdateConfig.from_dict(d.get("update", {})),
         )
 
 
@@ -337,9 +339,9 @@ def _seed_config_dict() -> dict:
     global _SEED_CONFIG
     if _SEED_CONFIG is None:
         seed_path = _paths.CONFIG_SEED_FILE
-        if seed_path.exists():
+        try:
             _SEED_CONFIG = json.loads(seed_path.read_text(encoding="utf-8"))
-        else:
+        except (OSError, ValueError, UnicodeDecodeError):
             _SEED_CONFIG = asdict(FlowkeyConfig())
     return _deepcopy(_SEED_CONFIG)
 
@@ -406,7 +408,8 @@ _PATCH_NOTES_KEYS = frozenset({
     "categories", "fetch_timeout_seconds", "generate_summary",
     "generate_title", "low_confidence_to_inbox", "max_extracted_chars", "vault_dir",
 })
-_PATCH_HOTKEYS_KEYS = frozenset({"ask_chat", "capture_note", "grammar_fix", "open_chat"})
+_PATCH_TRANSFORM_HOTKEYS_KEYS = frozenset({"grammar", "prompt", "summarize", "explain", "tone"})
+_PATCH_INTERACTION_HOTKEYS_KEYS = frozenset({"ask_chat", "capture_note", "open_chat"})
 _PATCH_CHAT_KEYS = frozenset({
     "request_timeout_s", "temperature", "max_tokens",
     "context_window_turns", "system_prompt",
@@ -421,7 +424,8 @@ _PATCH_SECTION_KEYS: dict[str, frozenset[str]] = {
     "input_processing": _PATCH_INPUT_PROCESSING_KEYS,
     "notes": _PATCH_NOTES_KEYS,
     "chat": _PATCH_CHAT_KEYS,
-    "hotkeys": _PATCH_HOTKEYS_KEYS,
+    "transform_hotkeys": _PATCH_TRANSFORM_HOTKEYS_KEYS,
+    "interaction_hotkeys": _PATCH_INTERACTION_HOTKEYS_KEYS,
 }
 
 

@@ -358,15 +358,6 @@ def _act_version(_args: dict) -> str:
     return engine.APP_VERSION
 
 
-def _act_update_check(_args: dict) -> dict:
-    return engine.check_for_update()
-
-
-@_write_action
-def _act_update_apply(_args: dict) -> str:
-    return engine.apply_update()
-
-
 def _act_flm_update_check(args: dict) -> dict:
     """Compare the installed FastFlowLM (flm) version with the latest GitHub
     release. Cached ~24h in data/; args.force bypasses the cache."""
@@ -548,8 +539,6 @@ ACTIONS: dict[str, Callable[[dict], Any]] = {
     "apply_config_patch": _act_apply_config_patch,
     "doctor": _act_doctor,
     "version": _act_version,
-    "update_check": _act_update_check,
-    "update_apply": _act_update_apply,
     "flm_update_check": _act_flm_update_check,
     "bench_start": _act_bench_start,
     "bench_status": _act_bench_status,
@@ -582,7 +571,6 @@ READ_ONLY_SUBPROCESS_ACTIONS = frozenset({
     "dashboard_data",
     "stats",
     "version",
-    "update_check",
     "doctor",
     "models_list",
     "models_installed",

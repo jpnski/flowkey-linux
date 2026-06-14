@@ -22,7 +22,6 @@ import flm_server
 import llm_client
 import paths as _paths
 import telemetry
-import updater
 
 _is_selectable_chat_model = flm_server._is_selectable_chat_model
 
@@ -100,38 +99,20 @@ def _snapshot_usage_acc() -> dict:
     return llm_client.snapshot_usage_acc(_USAGE_ACC)
 
 
-def shortcut_to_compact(shortcut: str) -> str:
-    """Translate `Ctrl+Shift+G` style strings into compact modifier notation (`^+g`).
-
-    ^ = Ctrl, + = Shift, ! = Alt, # = Win/Super.
-    """
-    raw = str(shortcut or "").replace(" ", "")
-    if not raw:
-        return ""
-    parts = [part for part in raw.split("+") if part]
-    if not parts:
-        return ""
-    key = parts[-1]
-    modifiers = ""
-    for part in parts[:-1]:
-        lower = part.lower()
-        if lower in ("ctrl", "control", "^"):
-            modifiers += "^"
-        elif lower in ("shift", "+"):
-            modifiers += "+"
-        elif lower in ("alt", "option", "!"):
-            modifiers += "!"
-        elif lower in ("win", "windows", "cmd", "command", "#"):
-            modifiers += "#"
-    return modifiers + key.lower()
-
-
 def list_hotkeys() -> None:
-    """Print one TSV row per configured mode (consumed by --list-hotkeys)."""
-    for mode_id, mode_cfg in CONFIG.modes.items():
-        hotkey = shortcut_to_compact(mode_cfg.shortcut)
+    """Print one TSV row per configured transform hotkey (consumed by --list-hotkeys)."""
+    mode_labels = {
+        "grammar": "Grammar fix",
+        "prompt": "Prompt fix (Claude)",
+        "summarize": "Summarize",
+        "explain": "Explain code/regex/SQL",
+        "tone": "Tone shift",
+    }
+    hotkeys = CONFIG.transform_hotkeys
+    for mode_id in ("grammar", "prompt", "summarize", "explain", "tone"):
+        hotkey = str(getattr(hotkeys, mode_id, "")).replace(" ", "")
         if hotkey:
-            label = (mode_cfg.label or mode_id).replace("\t", " ").strip()
+            label = (CONFIG.modes.get(mode_id).label if mode_id in CONFIG.modes else mode_labels[mode_id]).replace("\t", " ").strip()
             print(f"{mode_id}\t{hotkey}\t{label}")
 
 
@@ -534,23 +515,6 @@ def run_doctor() -> str:
     return "\n".join(f"{k}: {v}" for k, v in checks)
 
 
-UPDATE_FEED_URL_DEFAULT = updater.UPDATE_FEED_URL_DEFAULT
-
-
-def _version_tuple(v: str) -> tuple[int, ...]:
-    return updater.version_tuple(v)
-
-
-def check_for_update() -> dict:
-    feed_url = CONFIG.update.feed_url or UPDATE_FEED_URL_DEFAULT
-    return updater.check_for_update(APP_VERSION, feed_url=feed_url)
-
-
-def apply_update() -> str:
-    feed_url = CONFIG.update.feed_url or UPDATE_FEED_URL_DEFAULT
-    return updater.apply_update(APP_VERSION, TOOL_DIR, feed_url=feed_url)
-
-
 def apply_config_patch(patch: dict) -> str:
     """Merge a whitelisted config patch, validate model changes, refresh runtime."""
     filtered = config.filter_config_patch(patch)
@@ -690,11 +654,17 @@ def build_config_snapshot() -> dict:
         "tone": {
             "preset": tone_preset,
         },
-        "hotkeys": {
-            "grammar_fix": cfg.hotkeys.grammar_fix,
-            "open_chat": cfg.hotkeys.open_chat,
-            "capture_note": cfg.hotkeys.capture_note,
-            "ask_chat": cfg.hotkeys.ask_chat,
+        "transform_hotkeys": {
+            "grammar": cfg.transform_hotkeys.grammar,
+            "prompt": cfg.transform_hotkeys.prompt,
+            "summarize": cfg.transform_hotkeys.summarize,
+            "explain": cfg.transform_hotkeys.explain,
+            "tone": cfg.transform_hotkeys.tone,
+        },
+        "interaction_hotkeys": {
+            "open_chat": cfg.interaction_hotkeys.open_chat,
+            "ask_chat": cfg.interaction_hotkeys.ask_chat,
+            "capture_note": cfg.interaction_hotkeys.capture_note,
         },
     }
 
@@ -819,12 +789,6 @@ def handle_server_cli(argv: list[str] | None = None) -> bool:
             return True
         if action == "version":
             print(APP_VERSION)
-            return True
-        if action == "update_check":
-            print(json.dumps(check_for_update(), ensure_ascii=False))
-            return True
-        if action == "update_apply":
-            print(apply_update())
             return True
         if action == "pull_model":
             if "--value" not in args:
