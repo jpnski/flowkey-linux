@@ -11,7 +11,6 @@ import os
 import subprocess
 from collections.abc import Mapping
 
-
 _SANITIZED_ENV_VARS = ("LD_LIBRARY_PATH", "LD_PRELOAD")
 
 
