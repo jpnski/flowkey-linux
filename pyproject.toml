@@ -45,7 +45,7 @@ dependencies = [
 
 [project.optional-dependencies]
 x11 = ["pynput>=1.7"]
-wayland = ["evdev>=1.7", "dasbus>=1.7", "PyGObject>=3.50"]
+wayland = ["evdev>=1.7", "dasbus>=1.7"]
 tray = ["pystray>=0.19"]
 readability = ["trafilatura>=1.8"]
 dev = [

@@ -350,7 +350,7 @@ DESKTOP_EOF
 }
 
 install_binary_release() {
-  local arch tag asset_name release_url tmpdir extract_dir payload_dir payload_target
+  local arch tag asset_name release_url tmpdir extract_dir payload_dir payload_file payload_target
 
   arch="$(detect_arch)"
   asset_name="flowkey-linux-${arch}.tar.gz"
@@ -378,18 +378,29 @@ install_binary_release() {
   tar -xzf "${tmpdir}/${asset_name}" -C "$extract_dir" || fail "Failed to unpack ${asset_name}."
 
   payload_dir=""
+  payload_file=""
   for candidate in "$extract_dir"/*; do
     if [[ -d "$candidate" && -f "$candidate/flowkey" ]]; then
       payload_dir="$candidate"
       break
+    elif [[ -f "$candidate" && "$(basename "$candidate")" == "flowkey" ]]; then
+      payload_file="$candidate"
+      break
     fi
   done
-  [[ -n "$payload_dir" ]] || fail "Release archive does not contain a flowkey payload directory."
 
   mkdir -p "$(dirname "$FLOWKEY_INSTALL_ROOT")" "$FLOWKEY_BIN_DIR"
   payload_target="${FLOWKEY_INSTALL_ROOT}.new"
   rm -rf "$payload_target"
-  mv "$payload_dir" "$payload_target" || fail "Failed to stage Flowkey payload into ${payload_target}."
+  if [[ -n "$payload_dir" ]]; then
+    mv "$payload_dir" "$payload_target" || fail "Failed to stage Flowkey payload into ${payload_target}."
+  elif [[ -n "$payload_file" ]]; then
+    mkdir -p "$payload_target"
+    mv "$payload_file" "$payload_target/flowkey" || fail "Failed to stage Flowkey payload into ${payload_target}."
+    chmod +x "$payload_target/flowkey" 2>/dev/null || true
+  else
+    fail "Release archive does not contain a flowkey payload directory or binary."
+  fi
   rm -rf "$FLOWKEY_INSTALL_ROOT"
   mv "$payload_target" "$FLOWKEY_INSTALL_ROOT" || fail "Failed to install Flowkey into ${FLOWKEY_INSTALL_ROOT}."
 
@@ -437,6 +448,10 @@ resolve_flowkey_command() {
 
 # ── Post-install summary ─────────────────────────────────────────────────────
 print_summary() {
+  local current_user
+
+  current_user="${USER:-$(id -un 2>/dev/null || true)}"
+
   echo
   log "══════════════════════════════════════════════════"
   log "  ${APP_NAME} installation complete!"
@@ -462,7 +477,7 @@ print_summary() {
   log "  For X11: xdotool and pynput handle everything."
   echo
 
-  if groups "$USER" 2>/dev/null | grep -qw "input"; then
+  if [[ -n "$current_user" ]] && groups "$current_user" 2>/dev/null | grep -qw "input"; then
     :
   else
     warn "You were added to the 'input' group. Log out and back in for evdev hotkeys to work."
@@ -471,6 +486,10 @@ print_summary() {
 
 # ── Post-install summary ─────────────────────────────────────────────────────
 print_summary() {
+  local current_user
+
+  current_user="${USER:-$(id -un 2>/dev/null || true)}"
+
   echo
   log "══════════════════════════════════════════════════"
   log "  ${APP_NAME} installation complete!"
@@ -497,7 +516,7 @@ print_summary() {
   echo
 
   # Remind about group if just added
-  if groups "$USER" 2>/dev/null | grep -qw "input"; then
+  if [[ -n "$current_user" ]] && groups "$current_user" 2>/dev/null | grep -qw "input"; then
     :  # already in group
   else
     warn "You were added to the 'input' group. Log out and back in for evdev hotkeys to work."

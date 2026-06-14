@@ -44,32 +44,39 @@ jobs:
             -e ARTIFACT_NAME="${{ matrix.artifact_name }}" \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
-            python:3.12-slim-bookworm \
-            bash -lc '
+            ubuntu:24.04 \
+            bash -c '
               set -euo pipefail
               apt-get update -qq
               apt-get install -y -qq \
                 build-essential \
                 curl \
                 gzip \
-                gobject-introspection \
-                libffi-dev \
-                libgirepository1.0-dev \
-                libcairo2-dev \
                 patchelf \
                 pkg-config \
-                meson \
-                ninja-build \
                 tar \
+                python3 \
+                python3-pip \
+                python3-venv \
                 python3-dev \
                 libevdev-dev \
-                libx11-dev
-              python -m pip install --upgrade pip
-              pip install ".[dev,x11,wayland,tray]"
-              python -m pip check
-              python -c "import evdev, gi, pynput.keyboard, dasbus.connection, pystray; from PIL import Image; print(\"runtime-imports-ok\")"
-              python scripts/build_frozen.py
-              tar -C dist -czf "${ARTIFACT_NAME}" flowkey
+                libx11-dev \
+                python3-gi \
+                xvfb \
+                xauth
+              python3 -m venv --system-site-packages /tmp/flowkey-venv
+              /tmp/flowkey-venv/bin/python -m pip install --upgrade pip
+              /tmp/flowkey-venv/bin/python -m pip install ".[dev,x11,wayland,tray]"
+              /tmp/flowkey-venv/bin/python -m pip check
+              PYNPUT_BACKEND=dummy /tmp/flowkey-venv/bin/python -c "import importlib.metadata as im; import evdev, gi, pynput.keyboard, dasbus.connection; from PIL import Image; assert im.version(\"pystray\"); print(\"runtime-imports-ok\")"
+              xvfb-run -a env XDG_SESSION_TYPE=x11 PYNPUT_BACKEND=xorg PYSTRAY_BACKEND=xorg /tmp/flowkey-venv/bin/python scripts/build_frozen.py
+              ./dist/flowkey --help >/dev/null
+              rm -rf /tmp/flowkey-release
+              mkdir -p /tmp/flowkey-release/flowkey/assets
+              mv dist/flowkey /tmp/flowkey-release/flowkey/flowkey
+              cp scripts/assets/flowkey.png /tmp/flowkey-release/flowkey/assets/
+              cp scripts/assets/flowkey.ico /tmp/flowkey-release/flowkey/assets/
+              tar -C /tmp/flowkey-release -czf "${ARTIFACT_NAME}" flowkey
               sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"
             '
 

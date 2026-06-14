@@ -4,12 +4,31 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import sysconfig
 
 from PyInstaller.utils.hooks import collect_submodules
 
 
 ROOT = Path(os.getcwd()).resolve()
 SCRIPTS = ROOT / "scripts"
+
+
+def _python_shared_library() -> list[tuple[str, str]]:
+    libdir = sysconfig.get_config_var("LIBDIR")
+    if not libdir:
+        return []
+
+    for libname in (
+        sysconfig.get_config_var("INSTSONAME"),
+        sysconfig.get_config_var("LDLIBRARY"),
+    ):
+        if not libname:
+            continue
+        candidate = Path(libdir) / libname
+        if candidate.exists():
+            return [(str(candidate), ".")]
+
+    return []
 
 
 hiddenimports = [
@@ -40,6 +59,8 @@ hiddenimports += collect_submodules("evdev")
 hiddenimports += collect_submodules("dasbus")
 hiddenimports += collect_submodules("pystray")
 
+binaries = _python_shared_library()
+
 datas = [
     (str(SCRIPTS / "config.seed.json"), "."),
     (str(SCRIPTS / "assets" / "flowkey.png"), "assets"),
@@ -50,7 +71,7 @@ datas = [
 a = Analysis(
     [str(SCRIPTS / "flowkey.py")],
     pathex=[str(SCRIPTS)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -74,20 +95,10 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
-    exclude_binaries=True,
+    exclude_binaries=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="flowkey",
 )
