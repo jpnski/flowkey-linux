@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from types import SimpleNamespace
 
 
@@ -63,6 +65,29 @@ def test_register_hotkeys_from_config_uses_new_action_names(fresh_modules, monke
         "open_chat",
         "ask_chat",
     ]
+
+
+def test_wayland_hotkey_matching_accepts_either_modifier_side(fresh_modules, monkeypatch):
+    listener = fresh_modules("listener")
+
+    fake_evdev = types.ModuleType("evdev")
+    fake_evdev.ecodes = SimpleNamespace(
+        KEY_LEFTCTRL=10,
+        KEY_RIGHTCTRL=11,
+        KEY_LEFTALT=12,
+        KEY_RIGHTALT=13,
+        KEY_LEFTMETA=15,
+        KEY_RIGHTMETA=16,
+        KEY_G=14,
+    )
+    monkeypatch.setitem(sys.modules, "evdev", fake_evdev)
+
+    groups = listener._hotkey_to_evdev("ctrl+alt+g")
+
+    assert groups == ({10, 11}, {12, 13}, {14})
+    assert listener._evdev_combo_satisfied(groups, {11, 12, 14}) is True
+    assert listener._evdev_combo_satisfied(groups, {10, 13, 14}) is True
+    assert listener._evdev_combo_satisfied(groups, {10, 14}) is False
 
 
 def test_process_selection_uses_requested_default_mode(fresh_modules, monkeypatch):

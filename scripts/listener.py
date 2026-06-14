@@ -1167,14 +1167,14 @@ def _register_wayland_hotkeys(handlers: dict[str, callable]) -> threading.Thread
         return None
 
     # Build combo key sets
-    combo_map: list[tuple[str, set[int], callable]] = []
+    combo_map: list[tuple[str, tuple[set[int], ...], callable]] = []
     for action, handler in handlers.items():
         key = HOTKEY_BINDINGS.get(action)
         if not key:
             continue
-        key_codes = _hotkey_to_evdev(key)
-        if key_codes:
-            combo_map.append((action, key_codes, handler))
+        key_groups = _hotkey_to_evdev(key)
+        if key_groups:
+            combo_map.append((action, key_groups, handler))
 
     if not combo_map:
         log.warning("no Wayland hotkey combos to register")
@@ -1190,8 +1190,8 @@ def _register_wayland_hotkeys(handlers: dict[str, callable]) -> threading.Thread
     return thread
 
 
-def _hotkey_to_evdev(hotkey: str) -> set[int]:
-    """Convert a readable hotkey string to a set of evdev key codes.
+def _hotkey_to_evdev(hotkey: str) -> tuple[set[int], ...]:
+    """Convert a readable hotkey string to evdev key-code groups.
 
     Accepts human-readable ('Ctrl+Alt+G') format.
     """
@@ -1204,28 +1204,28 @@ def _hotkey_to_evdev(hotkey: str) -> set[int]:
     }
 
     raw = (hotkey or "").strip().lower()
-    codes: set[int] = set()
+    groups: list[set[int]] = []
     key_char = ""
 
     parts = [p.strip() for p in raw.split("+") if p.strip()]
     for p in parts:
         if p in name_mod_map:
-            codes.update(name_mod_map[p])
+            groups.append(set(name_mod_map[p]))
         elif p.isalnum() and not key_char:
             key_char = p.upper()
     if key_char and len(key_char) == 1 and "A" <= key_char <= "Z":
         key_attr = f"KEY_{key_char}"
         code = getattr(ecodes, key_attr, None)
         if code:
-            codes.add(code)
+            groups.append({code})
     elif key_char:
         # Try direct lookup (e.g., KEY_1, KEY_SPACE)
         key_attr = f"KEY_{key_char}"
         code = getattr(ecodes, key_attr, None)
         if code:
-            codes.add(code)
+            groups.append({code})
 
-    return codes
+    return tuple(groups)
 
 
 def _find_keyboard_devices() -> list[Any]:
@@ -1256,7 +1256,11 @@ def _find_keyboard_devices() -> list[Any]:
     return keyboards
 
 
-def _evdev_monitor_loop(combo_map: list[tuple[str, set[int], callable]]) -> None:
+def _evdev_combo_satisfied(required_groups: tuple[set[int], ...], pressed: set[int]) -> bool:
+    return all(any(code in pressed for code in group) for group in required_groups)
+
+
+def _evdev_monitor_loop(combo_map: list[tuple[str, tuple[set[int], ...], callable]]) -> None:
     """Evdev monitoring thread: read key events and detect combos.
 
     Args:
@@ -1298,29 +1302,18 @@ def _evdev_monitor_loop(combo_map: list[tuple[str, set[int], callable]]) -> None
                         elif event.value == 0:  # release
                             pressed.discard(event.code)
 
-                        # Check combos
-                        for idx, (_action, required_codes, handler) in enumerate(combo_map):
-                            if idx in combo_fired:
-                                continue
-                            if required_codes.issubset(pressed):
-                                # Combo detected!
-                                combo_fired.add(idx)
-                                log.info("evdev combo detected: %s", _action)
-                                try:
-                                    handler()
-                                except Exception as exc:
-                                    log.warning("evdev handler %s failed: %s", _action, exc)
-
-                        # Reset fired combos when any required key is released
-                        released_codes: set[int] = set()
-                        for idx, (_action, required_codes, _handler) in enumerate(combo_map):
-                            if idx in combo_fired:
-                                for code in required_codes:
-                                    if code not in pressed:  # key was released
-                                        released_codes.add(idx)
-
-                        for idx in released_codes:
-                            combo_fired.discard(idx)
+                        # Check combos and clear fired state when the combo is no longer held.
+                        for idx, (_action, required_groups, handler) in enumerate(combo_map):
+                            if _evdev_combo_satisfied(required_groups, pressed):
+                                if idx not in combo_fired:
+                                    combo_fired.add(idx)
+                                    log.info("evdev combo detected: %s", _action)
+                                    try:
+                                        handler()
+                                    except Exception as exc:
+                                        log.warning("evdev handler %s failed: %s", _action, exc)
+                            else:
+                                combo_fired.discard(idx)
 
                 except BlockingIOError:
                     pass
