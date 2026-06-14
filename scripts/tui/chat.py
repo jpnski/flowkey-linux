@@ -22,6 +22,7 @@ from pathlib import Path
 
 import launcher
 import loopback_http
+import version
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -29,7 +30,6 @@ from textual.events import Click
 from textual.widgets import Markdown, Static, TextArea
 
 from tui.dashboard.config_pane.flm import FlmModelPanel
-import version
 
 log = logging.getLogger("flowkey.tui.chat")
 
