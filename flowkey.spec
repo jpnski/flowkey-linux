@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 from PyInstaller.utils.hooks import collect_submodules
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.getcwd()).resolve()
 SCRIPTS = ROOT / "scripts"
 
 
@@ -29,7 +30,6 @@ hiddenimports = [
     "subprocess_util",
     "telemetry",
     "tools",
-    "updater",
     "notes",
 ]
 hiddenimports += collect_submodules("tui")
@@ -68,6 +68,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=True,
+    exclude_binaries=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
