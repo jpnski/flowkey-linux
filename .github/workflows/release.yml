@@ -67,15 +67,7 @@ jobs:
               python -m pip install --upgrade pip
               pip install ".[dev,x11,wayland,tray]"
               python -m pip check
-              python - <<'PY'
-import evdev
-import gi
-import pynput.keyboard
-import dasbus.connection
-import pystray
-from PIL import Image
-print("runtime-imports-ok")
-PY
+              python -c "import evdev, gi, pynput.keyboard, dasbus.connection, pystray; from PIL import Image; print(\"runtime-imports-ok\")"
               python scripts/build_frozen.py
               tar -C dist -czf "${ARTIFACT_NAME}" flowkey
               sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"
