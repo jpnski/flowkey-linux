@@ -24,7 +24,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import config
 import paths as _paths
 
 HERE = Path(__file__).resolve().parent
@@ -91,11 +90,7 @@ def _ensure_config() -> None:
         shutil.copyfile(CONFIG_SEED, CONFIG_LIVE)
         _step("Created config.json from seed.")
         return
-    CONFIG_LIVE.write_text(
-        json.dumps(config.DEFAULT_CONFIG, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    _step("Created config.json from built-in defaults.")
+    raise FileNotFoundError(f"Bundled seed config missing: {CONFIG_SEED}")
 
 
 # ---------- XDG autostart ----------------------------------------------------

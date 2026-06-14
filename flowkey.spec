@@ -29,15 +29,16 @@ hiddenimports = [
     "pull",
     "subprocess_util",
     "telemetry",
+    "version",
     "tools",
     "notes",
 ]
 hiddenimports += collect_submodules("tui")
 
 datas = [
-    (str(SCRIPTS / "config.seed.json"), "_internal"),
-    (str(SCRIPTS / "assets" / "flowkey.png"), "_internal/assets"),
-    (str(SCRIPTS / "assets" / "flowkey.ico"), "_internal/assets"),
+    (str(SCRIPTS / "config.seed.json"), "."),
+    (str(SCRIPTS / "assets" / "flowkey.png"), "assets"),
+    (str(SCRIPTS / "assets" / "flowkey.ico"), "assets"),
 ]
 
 

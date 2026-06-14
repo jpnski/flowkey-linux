@@ -13,7 +13,7 @@ def test_load_config_returns_defaults_when_file_missing(fresh_modules):
     cfg = engine.load_config()
 
     assert cfg.flm_server.model == "gemma4-it:e4b"
-    assert cfg.flm_server.power_mode == "balanced"
+    assert cfg.flm_server.power_mode == "turbo"
     assert cfg.history.store_text is False
 
 
@@ -42,7 +42,7 @@ def test_load_config_merges_nested_sections(fresh_modules):
 
     assert cfg.flm_server.model == "custom:model"
     assert cfg.flm_server.auto_start is False
-    assert cfg.flm_server.power_mode == "balanced"
+    assert cfg.flm_server.power_mode == "turbo"
     assert cfg.input_processing.chunk_size == 900
     assert cfg.grammar_ignore_words == ["Flowkey"]
     assert cfg.transform_hotkeys.grammar == "Ctrl+Alt+G"
@@ -70,8 +70,8 @@ def test_list_hotkeys_prints_human_readable_shortcuts(fresh_modules, capsys):
 
     out = capsys.readouterr().out.splitlines()
     assert out[0].startswith("mode")
-    assert any(line.startswith("grammar  ") and "Ctrl+Shift+G" in line for line in out)
-    assert any(line.startswith("prompt   ") and "Ctrl+Shift+P" in line for line in out)
+    assert any(line.startswith("grammar") and "ctrl+alt+g" in line for line in out)
+    assert any(line.startswith("prompt") and "ctrl+alt+p" in line for line in out)
     assert all("\t" not in line for line in out)
 
 

@@ -6,6 +6,8 @@ import importlib
 import sys
 from collections.abc import Iterable
 
+import version
+
 COMMANDS: dict[str, tuple[str, str, str]] = {
     "daemon": ("daemon", "main", "Start the action daemon"),
     "process": ("engine", "main", "Run the text-processing pipeline"),
@@ -38,12 +40,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(_top_help())
         return 0
     if args[0] in {"-V", "--version"}:
-        try:
-            from importlib.metadata import version
-
-            print(version("flowkey"))
-        except Exception:
-            print("0.0.0")
+        print(version.APP_VERSION)
         return 0
 
     cmd = args[0]

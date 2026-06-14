@@ -7,6 +7,8 @@ import subprocess
 import tarfile
 from pathlib import Path
 
+import pytest
+
 
 def _write_fake_release_archive(path: Path) -> None:
     script = """#!/usr/bin/env python3
@@ -106,3 +108,27 @@ def test_binary_install_smoke(tmp_path: Path):
     assert (xdg_root / "data" / "daemon.seen").exists()
     assert (xdg_root / "data" / "tui.seen").exists()
     assert (xdg_root / "data" / "listen.seen").exists()
+
+
+def test_ensure_config_copies_seed_without_fallback(fresh_modules, tmp_path: Path):
+    install = fresh_modules("install")
+    seed = tmp_path / "config.seed.json"
+    live = tmp_path / "config.json"
+    payload = '{"theme":"textual-dark"}\n'
+    seed.write_text(payload, encoding="utf-8")
+    install.CONFIG_SEED = seed
+    install.CONFIG_LIVE = live
+
+    install._ensure_config()
+
+    assert live.read_text(encoding="utf-8") == payload
+
+
+def test_ensure_config_fails_when_seed_missing(fresh_modules, tmp_path: Path):
+    install = fresh_modules("install")
+    live = tmp_path / "config.json"
+    install.CONFIG_SEED = tmp_path / "missing.seed.json"
+    install.CONFIG_LIVE = live
+
+    with pytest.raises(FileNotFoundError):
+        install._ensure_config()

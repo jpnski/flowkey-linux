@@ -6,7 +6,7 @@
   },
   "flm_server": {
     "model": "gemma4-it:e4b",
-    "power_mode": "balanced",
+    "power_mode": "turbo",
     "auto_start": true,
     "startup_timeout_s": 25,
     "pull_timeout_seconds": 900,
@@ -22,14 +22,14 @@
   },
   "grammar_ignore_words": [],
   "transform_hotkeys": {
-    "grammar": "Ctrl+Shift+G",
-    "prompt": "Ctrl+Shift+P",
-    "summarize": "Ctrl+Shift+S",
-    "explain": "Ctrl+Shift+E",
-    "tone": "Ctrl+Shift+T"
+    "grammar": "ctrl+alt+g",
+    "prompt": "ctrl+alt+p",
+    "summarize": "ctrl+alt+s",
+    "explain": "ctrl+alt+e",
+    "tone": "ctrl+alt+t"
   },
   "interaction_hotkeys": {
-    "open_chat": "ctrl+alt+t",
+    "open_chat": "ctrl+alt+c",
     "ask_chat": "ctrl+alt+a",
     "capture_note": "ctrl+alt+n"
   },

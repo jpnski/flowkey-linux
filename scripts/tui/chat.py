@@ -29,6 +29,7 @@ from textual.events import Click
 from textual.widgets import Markdown, Static, TextArea
 
 from tui.dashboard.config_pane.flm import FlmModelPanel
+import version
 
 log = logging.getLogger("flowkey.tui.chat")
 
@@ -263,6 +264,12 @@ class ChatWidget(Container):
         background: $surface;
     }
 
+    #chat-footer-row {
+        height: auto;
+        padding: 1 0 0 0;
+        background: $surface;
+    }
+
     #chat-input {
         width: 1fr;
         height: auto;
@@ -274,7 +281,13 @@ class ChatWidget(Container):
         width: 1fr;
         height: 1;
         color: $text-muted;
-        margin-top: 1;
+    }
+
+    #app-version {
+        width: auto;
+        height: 1;
+        color: $text-muted;
+        text-align: right;
     }
 
     .message-content {
@@ -349,7 +362,9 @@ class ChatWidget(Container):
                 id="chat-input",
                 soft_wrap=True,
             )
-            yield Static("", id="connection-status")
+            with Horizontal(id="chat-footer-row"):
+                yield Static("", id="connection-status")
+                yield Static(f"v{version.APP_VERSION}", id="app-version")
 
     def on_mount(self) -> None:
         self._status_widget = self.query_one("#connection-status", Static)
@@ -719,7 +734,7 @@ class ChatWidget(Container):
                                show_role=show_role, msg_id=msg_id)
         bubble.add_class(role)
         messages.mount(bubble)
-        messages.scroll_end(animate=False)
+        self.call_after_refresh(self._scroll_chat_to_bottom)
 
         if not is_streaming:
             self._current_bubble = None
@@ -731,6 +746,7 @@ class ChatWidget(Container):
         """Update the current streaming bubble with new content."""
         if self._current_bubble is not None:
             self._current_bubble.update_content(content)
+            self.call_after_refresh(self._scroll_chat_to_bottom)
 
     def _finalize_stream(self, content: str) -> None:
         """Finalize a streaming or processing response."""
@@ -744,8 +760,15 @@ class ChatWidget(Container):
         # Update history with final content
         self._history.update_last_assistant(content)
 
-        messages = self.query_one("#chat-messages", VerticalScroll)
-        messages.scroll_end(animate=True)
+        self.call_after_refresh(self._scroll_chat_to_bottom)
+
+    def _scroll_chat_to_bottom(self) -> None:
+        """Keep the newest assistant content visible at the bottom of the log."""
+        try:
+            messages = self.query_one("#chat-messages", VerticalScroll)
+            messages.scroll_end(animate=False)
+        except Exception as exc:
+            log.debug("could not scroll chat to bottom: %s", exc)
 
     def _clear_history(self) -> None:
         """Clear all messages."""

@@ -22,14 +22,11 @@ import flm_server
 import llm_client
 import paths as _paths
 import telemetry
+import version
 
 _is_selectable_chat_model = flm_server._is_selectable_chat_model
 
-try:
-    from importlib.metadata import version as _pkg_version
-    APP_VERSION = _pkg_version("flowkey")
-except Exception:
-    APP_VERSION = "0.0.0"  # dev/uninstalled fallback; logger not available yet
+APP_VERSION = version.APP_VERSION
 
 _paths.ensure_dirs()
 
