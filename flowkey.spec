@@ -32,6 +32,7 @@ hiddenimports = [
     "version",
     "tools",
     "notes",
+    "textual.widgets._tab_pane",
 ]
 hiddenimports += collect_submodules("tui")
 
