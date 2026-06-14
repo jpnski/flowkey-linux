@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from subprocess_util import run_captured
+from subprocess_util import run_flm
 
 log = logging.getLogger("flowkey.benchmark")
 
@@ -106,7 +106,7 @@ def parse_bench_csv(path: Path) -> list[dict]:
 
 def _default_runner(model: str, work: Path) -> str:
     """Run the real `flm bench <model>` in `work` so the CSV lands there."""
-    result = run_captured(
+    result = run_flm(
         ["flm", "bench", model],
         cwd=str(work),
         timeout=5400,  # 90 min hard cap; large-context sweeps can be slow

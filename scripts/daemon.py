@@ -46,6 +46,8 @@ def _spawn_logged(name: str, argv: list[str], **kwargs) -> subprocess.CompletedP
     kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
     kwargs.setdefault("check", False)
+    if argv and argv[0] == "flm":
+        kwargs.setdefault("env", {k: v for k, v in os.environ.items() if k not in {"LD_LIBRARY_PATH", "LD_PRELOAD"}})
     start = time.time()
     try:
         result = subprocess.run(argv, **kwargs)
@@ -66,6 +68,8 @@ def _popen_logged(name: str, argv: list[str], **kwargs) -> subprocess.Popen:
     kwargs.setdefault("stdin", subprocess.DEVNULL)
     kwargs.setdefault("stdout", subprocess.DEVNULL)
     kwargs.setdefault("stderr", subprocess.DEVNULL)
+    if argv and argv[0] == "flm":
+        kwargs.setdefault("env", {k: v for k, v in os.environ.items() if k not in {"LD_LIBRARY_PATH", "LD_PRELOAD"}})
     proc = subprocess.Popen(argv, **kwargs)
     log.info("spawn name=%s argv=%s pid=%s", name,
              argv[0:1] + ["..."] if len(argv) > 2 else argv, proc.pid)

@@ -23,6 +23,7 @@ import llm_client
 import paths as _paths
 import telemetry
 import version
+from subprocess_util import run_flm
 
 _is_selectable_chat_model = flm_server._is_selectable_chat_model
 
@@ -496,7 +497,7 @@ def run_doctor() -> str:
             available = ",".join(models_info.get("models") or []) or "none"
             checks.append(("model_installed", f"no — wanted {FLM_MODEL}, have: {available}"))
     try:
-        val = subprocess.run(["flm", "validate", "--json"], capture_output=True, text=True, timeout=15, check=False)
+        val = run_flm(["flm", "validate", "--json"], capture_output=True, text=True, timeout=15, check=False)
         if val.returncode == 0 and val.stdout.strip():
             try:
                 vdata = json.loads(val.stdout)
@@ -785,8 +786,8 @@ def handle_server_cli(argv: list[str] | None = None) -> bool:
             if not model_name:
                 raise RuntimeError("Model name is empty.")
             try:
-                result = subprocess.run(["flm", "remove", model_name],
-                                        capture_output=True, text=True, timeout=60, check=False)
+                result = run_flm(["flm", "remove", model_name],
+                                 capture_output=True, text=True, timeout=60, check=False)
             except FileNotFoundError:
                 raise RuntimeError("flm CLI not found in PATH.")
             output = (result.stdout or "") + (result.stderr or "")
@@ -809,7 +810,7 @@ def handle_server_cli(argv: list[str] | None = None) -> bool:
             try:
                 _cfg = load_config()
                 _pull_timeout = _cfg.flm_server.pull_timeout_seconds
-                result = subprocess.run(
+                result = run_flm(
                     ["flm", "pull", model_name],
                     capture_output=True,
                     text=True,

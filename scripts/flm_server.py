@@ -18,7 +18,7 @@ from urllib.parse import urlparse
 
 import config
 from packaging.version import InvalidVersion, Version
-from subprocess_util import run_captured
+from subprocess_util import run_captured, run_flm
 
 log = logging.getLogger("flowkey.flmserver")
 
@@ -355,7 +355,7 @@ def flm_list(filter_kind: str, model: str) -> dict:
     if filter_kind not in {"installed", "not-installed", "all"}:
         return {"error": f"bad filter: {filter_kind}", "models": [], "active": model}
     try:
-        result = run_captured(
+        result = run_flm(
             ["flm", "list", "--json"],
             timeout=15,
             encoding="utf-8",
@@ -394,7 +394,7 @@ def flm_list(filter_kind: str, model: str) -> dict:
 def flm_version() -> str:
     """Return the installed flm version string (e.g. '0.9.43'), or '' if unknown."""
     try:
-        result = run_captured(
+        result = run_flm(
             ["flm", "version", "--json"],
             timeout=10,
             encoding="utf-8",

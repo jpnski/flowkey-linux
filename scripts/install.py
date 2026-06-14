@@ -25,6 +25,7 @@ import sys
 from pathlib import Path
 
 import paths as _paths
+from subprocess_util import run_flm
 
 HERE = Path(__file__).resolve().parent
 
@@ -125,7 +126,7 @@ def _model_installed(name: str) -> bool:
     if not _has_cmd("flm"):
         return False
     try:
-        result = subprocess.run(
+        result = run_flm(
             ["flm", "list", "--json"],
             capture_output=True, text=True, timeout=15, check=False,
         )
@@ -147,7 +148,7 @@ def _pull_model(name: str) -> bool:
         return False
     _step(f"Pulling model {name} (first run may take several minutes)...")
     try:
-        result = subprocess.run(["flm", "pull", name], check=False)
+        result = run_flm(["flm", "pull", name], check=False)
     except Exception as e:
         _step(f"flm pull failed: {e}")
         return False

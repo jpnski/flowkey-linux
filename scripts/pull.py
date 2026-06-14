@@ -20,6 +20,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from subprocess_util import popen_flm, run_flm
+
 log = logging.getLogger("flowkey.pull")
 
 _lock = threading.Lock()
@@ -79,7 +81,7 @@ def status() -> dict:
 
 def _default_runner(model: str, on_line: Callable[[str], None]) -> int:
     global _proc
-    proc = subprocess.Popen(
+    proc = popen_flm(
         ["flm", "pull", model],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -113,7 +115,7 @@ def _resolve_model_dir_from_list(model: str) -> Path | None:
     missing, or the URL can't be parsed.
     """
     try:
-        result = subprocess.run(
+        result = run_flm(
             ["flm", "list", "--json"],
             capture_output=True, text=True, timeout=15,
         )
@@ -157,7 +159,7 @@ def _cleanup_partial_model(model: str) -> None:
 
     # ---- Strategy 1: flm remove (preferred) ----
     try:
-        result = subprocess.run(
+        result = run_flm(
             ["flm", "remove", model],
             capture_output=True, text=True, timeout=30,
         )
