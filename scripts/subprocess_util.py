@@ -14,21 +14,37 @@ from collections.abc import Mapping
 from pathlib import Path
 
 
-def _bundle_internal_dir() -> Path | None:
+def _bundle_library_dirs() -> tuple[Path, ...]:
     if not getattr(sys, "frozen", False):
-        return None
-    return Path(sys.executable).resolve().parent / "_internal"
+        return ()
+
+    bundle_dirs: list[Path] = [Path(sys.executable).resolve().parent / "_internal"]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        meipass_dir = Path(meipass)
+        if meipass_dir not in bundle_dirs:
+            bundle_dirs.append(meipass_dir)
+    return tuple(bundle_dirs)
+
+
+def _path_within(candidate: str, root: Path) -> bool:
+    candidate_norm = os.path.normpath(candidate)
+    root_norm = os.path.normpath(str(root))
+    return candidate_norm == root_norm or candidate_norm.startswith(root_norm + os.sep)
 
 
 def _flm_child_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     """Return an env mapping safe for invoking the system `flm` CLI."""
     child_env = dict(os.environ if env is None else env)
-    bundle_dir = _bundle_internal_dir()
-    if bundle_dir is not None:
-        bundle_text = str(bundle_dir)
+    bundle_dirs = _bundle_library_dirs()
+    if bundle_dirs:
         ld_path = child_env.get("LD_LIBRARY_PATH")
         if ld_path:
-            parts = [part for part in ld_path.split(":") if part and part != bundle_text]
+            parts = [
+                part
+                for part in ld_path.split(":")
+                if part and not any(_path_within(part, bundle_dir) for bundle_dir in bundle_dirs)
+            ]
             if parts:
                 child_env["LD_LIBRARY_PATH"] = ":".join(parts)
             else:

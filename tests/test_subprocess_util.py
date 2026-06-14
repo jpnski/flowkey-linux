@@ -16,7 +16,11 @@ def test_run_flm_strips_bundle_library_path(monkeypatch):
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess_util.subprocess, "run", _fake_run)
-    monkeypatch.setattr(subprocess_util, "_bundle_internal_dir", lambda: Path("/home/j/.local/opt/flowkey/current/_internal"))
+    monkeypatch.setattr(
+        subprocess_util,
+        "_bundle_library_dirs",
+        lambda: (Path("/home/j/.local/opt/flowkey/current/_internal"),),
+    )
 
     env = {
         "CUSTOM": "1",
@@ -43,7 +47,11 @@ def test_popen_flm_strips_bundle_library_path(monkeypatch):
         return SimpleNamespace(pid=12345)
 
     monkeypatch.setattr(subprocess_util.subprocess, "Popen", _fake_popen)
-    monkeypatch.setattr(subprocess_util, "_bundle_internal_dir", lambda: Path("/home/j/.local/opt/flowkey/current/_internal"))
+    monkeypatch.setattr(
+        subprocess_util,
+        "_bundle_library_dirs",
+        lambda: (Path("/home/j/.local/opt/flowkey/current/_internal"),),
+    )
 
     env = {
         "PATH": "/usr/bin",
@@ -54,4 +62,31 @@ def test_popen_flm_strips_bundle_library_path(monkeypatch):
 
     assert proc.pid == 12345
     assert capture["argv"] == ["flm", "pull", "gemma4-it:e4b"]
+    assert capture["env"] == {"PATH": "/usr/bin", "LD_LIBRARY_PATH": "/opt/xilinx/xrt/lib"}
+
+
+def test_popen_flm_strips_onefile_bundle_path(monkeypatch):
+    capture: dict = {}
+
+    def _fake_popen(argv, **kwargs):
+        capture["argv"] = list(argv)
+        capture["env"] = dict(kwargs.get("env") or {})
+        return SimpleNamespace(pid=12345)
+
+    monkeypatch.setattr(subprocess_util.subprocess, "Popen", _fake_popen)
+    monkeypatch.setattr(
+        subprocess_util,
+        "_bundle_library_dirs",
+        lambda: (Path("/tmp/_MEIviVWIw"),),
+    )
+
+    env = {
+        "PATH": "/usr/bin",
+        "LD_LIBRARY_PATH": "/tmp/_MEIviVWIw:/opt/xilinx/xrt/lib",
+    }
+
+    proc = subprocess_util.popen_flm(["flm", "serve", "gemma4-it:e4b"], env=env)
+
+    assert proc.pid == 12345
+    assert capture["argv"] == ["flm", "serve", "gemma4-it:e4b"]
     assert capture["env"] == {"PATH": "/usr/bin", "LD_LIBRARY_PATH": "/opt/xilinx/xrt/lib"}
