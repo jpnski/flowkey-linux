@@ -69,9 +69,10 @@ def test_list_hotkeys_prints_human_readable_shortcuts(fresh_modules, capsys):
     engine.list_hotkeys()
 
     out = capsys.readouterr().out.splitlines()
-    assert any(line.startswith("grammar\tCtrl+Shift+G\t") for line in out)
-    assert any(line.startswith("prompt\tCtrl+Shift+P\t") for line in out)
-    assert all("^+" not in line and "!" not in line and "#" not in line for line in out)
+    assert out[0].startswith("mode")
+    assert any(line.startswith("grammar  ") and "Ctrl+Shift+G" in line for line in out)
+    assert any(line.startswith("prompt   ") and "Ctrl+Shift+P" in line for line in out)
+    assert all("\t" not in line for line in out)
 
 
 def test_normalize_output_cleans_smart_punctuation_and_spacing(fresh_modules):
@@ -215,6 +216,68 @@ def test_prompt_mode_cli_writes_output_file(fresh_modules, monkeypatch, tmp_path
     )
     engine.main()
     assert "<task>" in out_path.read_text(encoding="utf-8")
+
+
+def test_process_cli_stops_flm_server_after_one_shot_auto_start(fresh_modules, monkeypatch, tmp_path: Path):
+    engine = fresh_modules("engine")
+    reachability = [False, True]
+    stopped = []
+
+    monkeypatch.setattr(engine, "is_flm_server_reachable", lambda: reachability.pop(0))
+    monkeypatch.setattr(engine, "call_flm", lambda mode, text: ("done", 0.5, engine.FLM_MODEL, "grammar_short"))
+    monkeypatch.setattr(engine, "stop_flm_server", lambda force=True: stopped.append(force) or True)
+
+    in_path = tmp_path / "in.txt"
+    out_path = tmp_path / "out.txt"
+    in_path.write_text("hello", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "engine.py",
+            "--mode",
+            "grammar",
+            "--input-file",
+            str(in_path),
+            "--output-file",
+            str(out_path),
+        ],
+    )
+
+    engine.main()
+
+    assert stopped == [True]
+    assert out_path.read_text(encoding="utf-8") == "done"
+
+
+def test_process_cli_keep_flm_server_skips_stop(fresh_modules, monkeypatch, tmp_path: Path):
+    engine = fresh_modules("engine")
+    monkeypatch.setattr(engine, "is_flm_server_reachable", lambda: False)
+    monkeypatch.setattr(engine, "call_flm", lambda mode, text: ("done", 0.5, engine.FLM_MODEL, "grammar_short"))
+    stopped = []
+    monkeypatch.setattr(engine, "stop_flm_server", lambda force=True: stopped.append(force) or True)
+
+    in_path = tmp_path / "in.txt"
+    out_path = tmp_path / "out.txt"
+    in_path.write_text("hello", encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "engine.py",
+            "--mode",
+            "grammar",
+            "--keep-flm-server",
+            "--input-file",
+            str(in_path),
+            "--output-file",
+            str(out_path),
+        ],
+    )
+
+    engine.main()
+
+    assert stopped == []
 
 
 def test_call_flm_prompt_rejects_prompt_colon_echo(fresh_modules, monkeypatch):

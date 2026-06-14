@@ -100,7 +100,7 @@ def _snapshot_usage_acc() -> dict:
 
 
 def list_hotkeys() -> None:
-    """Print one TSV row per configured transform hotkey (consumed by --list-hotkeys)."""
+    """Print a human-readable table of configured transform hotkeys."""
     mode_labels = {
         "grammar": "Grammar fix",
         "prompt": "Prompt fix (Claude)",
@@ -109,11 +109,21 @@ def list_hotkeys() -> None:
         "tone": "Tone shift",
     }
     hotkeys = CONFIG.transform_hotkeys
+    rows: list[tuple[str, str, str]] = []
     for mode_id in ("grammar", "prompt", "summarize", "explain", "tone"):
         hotkey = str(getattr(hotkeys, mode_id, "")).replace(" ", "")
         if hotkey:
             label = (CONFIG.modes.get(mode_id).label if mode_id in CONFIG.modes else mode_labels[mode_id]).replace("\t", " ").strip()
-            print(f"{mode_id}\t{hotkey}\t{label}")
+            rows.append((mode_id, hotkey, label))
+
+    if not rows:
+        return
+
+    mode_width = max(len("mode"), *(len(row[0]) for row in rows))
+    hotkey_width = max(len("hotkey"), *(len(row[1]) for row in rows))
+    print(f"{'mode':<{mode_width}}  {'hotkey':<{hotkey_width}}  label")
+    for mode_id, hotkey, label in rows:
+        print(f"{mode_id:<{mode_width}}  {hotkey:<{hotkey_width}}  {label}")
 
 
 def normalize_output(text: str) -> str:
@@ -851,7 +861,8 @@ def main(argv: list[str] | None = None) -> None:
     if args and args[0] in {"-h", "--help"}:
         print(
             "usage: flowkey process [--list-hotkeys] [--mode MODE] "
-            "[--input-file PATH] [--output-file PATH] [--app-action ACTION] [--server COMMAND]"
+            "[--input-file PATH] [--output-file PATH] [--app-action ACTION] [--server COMMAND] "
+            "[--keep-flm-server]"
         )
         print("\nProcess text with the Flowkey pipeline or expose legacy daemon actions.")
         return
@@ -860,39 +871,45 @@ def main(argv: list[str] | None = None) -> None:
         return
     if handle_server_cli(args):
         return
+    keep_flm_server = "--keep-flm-server" in args
+    server_was_running = is_flm_server_reachable()
     mode = parse_mode(args)
     input_text = _read_input_text(args).strip()
     if not input_text:
         return
 
-    corrected, elapsed, model_used, strategy = call_flm(mode, input_text)
-    usage = _snapshot_usage_acc()
-    prompt_tokens = int(usage.get("prompt_tokens") or 0)
-    completion_tokens = int(usage.get("completion_tokens") or 0)
-    tok_per_sec = round(completion_tokens / elapsed, 2) if (elapsed and elapsed > 0 and completion_tokens > 0) else 0.0
-    history_entry = {
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "status": "success",
-        "mode": mode,
-        "source": "fastflowlm",
-        "model": model_used,
-        "input_chars": len(input_text),
-        "output_chars": len(corrected),
-        "strategy": strategy,
-        "elapsed_seconds": elapsed,
-        "prompt_tokens": prompt_tokens,
-        "completion_tokens": completion_tokens,
-        "tok_per_sec": tok_per_sec,
-    }
-    if HISTORY_STORE_TEXT:
-        history_entry["input_text"] = input_text
-        history_entry["output_text"] = corrected
-    append_history(history_entry)
-    _write_output_text(corrected, args)
-    print(f"API_TIME={elapsed}", file=sys.stderr)
-    print(f"API_PROMPT_TOKENS={prompt_tokens}", file=sys.stderr)
-    print(f"API_COMPLETION_TOKENS={completion_tokens}", file=sys.stderr)
-    print(f"API_TOK_PER_SEC={tok_per_sec}", file=sys.stderr)
+    try:
+        corrected, elapsed, model_used, strategy = call_flm(mode, input_text)
+        usage = _snapshot_usage_acc()
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        tok_per_sec = round(completion_tokens / elapsed, 2) if (elapsed and elapsed > 0 and completion_tokens > 0) else 0.0
+        history_entry = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "status": "success",
+            "mode": mode,
+            "source": "fastflowlm",
+            "model": model_used,
+            "input_chars": len(input_text),
+            "output_chars": len(corrected),
+            "strategy": strategy,
+            "elapsed_seconds": elapsed,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "tok_per_sec": tok_per_sec,
+        }
+        if HISTORY_STORE_TEXT:
+            history_entry["input_text"] = input_text
+            history_entry["output_text"] = corrected
+        append_history(history_entry)
+        _write_output_text(corrected, args)
+        print(f"API_TIME={elapsed}", file=sys.stderr)
+        print(f"API_PROMPT_TOKENS={prompt_tokens}", file=sys.stderr)
+        print(f"API_COMPLETION_TOKENS={completion_tokens}", file=sys.stderr)
+        print(f"API_TOK_PER_SEC={tok_per_sec}", file=sys.stderr)
+    finally:
+        if not keep_flm_server and not server_was_running and is_flm_server_reachable():
+            stop_flm_server(force=True)
 
 
 if __name__ == "__main__":

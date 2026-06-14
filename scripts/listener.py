@@ -55,6 +55,8 @@ _dashboard_poll_thread: threading.Thread | None = None
 _shutdown_event = threading.Event()
 _child_processes: list[subprocess.Popen] = []
 _child_lock = threading.Lock()
+_shutdown_lock = threading.Lock()
+_shutdown_started = False
 _log_initialized = False
 
 # ---------------------------------------------------------------------------
@@ -162,6 +164,18 @@ def _find_flowkey_daemon() -> list[str]:
     return launcher.flowkey_argv("daemon")
 
 
+def _spawn_detached(argv: list[str]) -> subprocess.Popen:
+    """Spawn a child in its own session so shutdown can reap it safely."""
+    return subprocess.Popen(
+        argv,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+        start_new_session=True,
+    )
+
+
 def ensure_daemon_running() -> bool:
     """Ensure the daemon is running and healthy.
 
@@ -178,13 +192,7 @@ def ensure_daemon_running() -> bool:
 
     log.info("daemon not reachable — spawning: %s", daemon_argv)
     try:
-        proc = subprocess.Popen(
-            daemon_argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
+        proc = _spawn_detached(daemon_argv)
         with _child_lock:
             _child_processes.append(proc)
     except OSError as exc:
@@ -639,7 +647,7 @@ def _run_mode_transform_subprocess(mode: str, infile: str, outfile: str) -> str 
     """Launch the engine subprocess, wait for completion, read output.
     Returns output text on success, None on failure (user already notified)."""
     gf_argv = _get_process_argv()
-    cmd = [*gf_argv, "--mode", mode, "--input-file", infile, "--output-file", outfile]
+    cmd = [*gf_argv, "--mode", mode, "--input-file", infile, "--output-file", outfile, "--keep-flm-server"]
     timeout = max(FLM_TIMEOUT_SECONDS + 20, 60)
 
     try:
@@ -853,13 +861,7 @@ def launch_chat() -> None:
     tui_argv.append(parent_arg)
 
     try:
-        proc = subprocess.Popen(
-            tui_argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
+        proc = _spawn_detached(tui_argv)
         with _child_lock:
             _child_processes.append(proc)
     except OSError as exc:
@@ -1074,13 +1076,7 @@ def dashboard_poll_loop() -> None:
                 parent_arg = f"--parent-pid={os.getpid()}"
                 tui_argv.append(parent_arg)
 
-                proc = subprocess.Popen(
-                    tui_argv,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    close_fds=True,
-                )
+                proc = _spawn_detached(tui_argv)
                 with _child_lock:
                     _child_processes.append(proc)
             except OSError as exc:
@@ -1457,6 +1453,13 @@ def _config_watch_loop() -> None:
 
 def shutdown() -> None:
     """Graceful shutdown: kill children, stop threads, cleanup."""
+    global _shutdown_started
+
+    with _shutdown_lock:
+        if _shutdown_started:
+            return
+        _shutdown_started = True
+
     log.info("shutting down listener")
 
     _shutdown_event.set()

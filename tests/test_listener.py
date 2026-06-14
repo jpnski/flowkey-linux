@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 
 def test_read_config_loads_new_hotkey_groups(fresh_modules):
@@ -89,3 +90,73 @@ def test_process_selection_uses_requested_default_mode(fresh_modules, monkeypatc
     assert captured["mode"] == "prompt"
     assert captured["pasted"] == "processed text"
     assert captured["notified"] == "prompt"
+
+
+def test_spawn_detached_uses_own_session(fresh_modules, monkeypatch):
+    listener = fresh_modules("listener")
+    captured = {}
+
+    def fake_popen(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(pid=1234)
+
+    monkeypatch.setattr(listener.subprocess, "Popen", fake_popen)
+
+    proc = listener._spawn_detached(["flowkey", "daemon"])
+
+    assert proc.pid == 1234
+    assert captured["kwargs"]["stdin"] == listener.subprocess.DEVNULL
+    assert captured["kwargs"]["stdout"] == listener.subprocess.DEVNULL
+    assert captured["kwargs"]["stderr"] == listener.subprocess.DEVNULL
+    assert captured["kwargs"]["close_fds"] is True
+    assert captured["kwargs"]["start_new_session"] is True
+
+
+def test_shutdown_is_idempotent_and_reaps_children_once(fresh_modules, monkeypatch):
+    listener = fresh_modules("listener")
+    calls: list[tuple[str, int]] = []
+
+    class FakeProc:
+        pid = 4321
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout=None):
+            calls.append(("wait", timeout))
+
+    monkeypatch.setattr(listener, "_unregister_hotkeys", lambda: calls.append(("unregister", 0)))
+    monkeypatch.setattr(listener.os, "getpgid", lambda pid: pid)
+    monkeypatch.setattr(listener.os, "killpg", lambda pgid, sig: calls.append((f"killpg:{sig}", pgid)))
+    monkeypatch.setattr(listener.subprocess, "TimeoutExpired", TimeoutError)
+
+    listener._child_processes[:] = [FakeProc()]
+
+    listener.shutdown()
+    listener.shutdown()
+
+    assert listener._shutdown_event.is_set() is True
+    assert calls.count(("unregister", 0)) == 1
+    assert calls.count(("wait", 1.0)) == 1
+    assert any(call[0].startswith("killpg:") for call in calls)
+    assert listener._child_processes == []
+
+
+def test_run_mode_transform_subprocess_keeps_flm_server_alive(fresh_modules, monkeypatch):
+    listener = fresh_modules("listener")
+    captured = {}
+
+    monkeypatch.setattr(listener, "_get_process_argv", lambda: ["flowkey", "process"])
+
+    def fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(listener.subprocess, "run", fake_run)
+    monkeypatch.setattr(listener.Path, "read_text", lambda self, encoding="utf-8": "output")
+
+    result = listener._run_mode_transform_subprocess("grammar", "/tmp/in.txt", "/tmp/out.txt")
+
+    assert result == "output"
+    assert "--keep-flm-server" in captured["cmd"]
