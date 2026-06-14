@@ -30,7 +30,11 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-}"
+SCRIPT_DIR=""
+if [[ -n "$SCRIPT_SOURCE" && "$SCRIPT_SOURCE" != /dev/fd/* && -f "$SCRIPT_SOURCE" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_SOURCE")" && pwd)"
+fi
 APP_NAME="Flowkey"
 
 # ── Color helpers ────────────────────────────────────────────────────────────
@@ -45,7 +49,27 @@ fail() { printf "${RED}[${APP_NAME} ERROR]${NC} %s\n" "$*" >&2; exit 1; }
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 usage() {
-  sed -n '2,/^$/{ s/^# \?//p }' "$0"
+  if [[ -n "$SCRIPT_SOURCE" && -r "$SCRIPT_SOURCE" ]]; then
+    sed -n '2,/^$/{ s/^# \?//p }' "$SCRIPT_SOURCE"
+  else
+    cat <<'EOF'
+Flowkey — Linux system installer
+
+Usage:
+  ./install.sh              # binary install (downloads release asset into ~/.local)
+  ./install.sh --from-source # contributor install from the local checkout
+  ./install.sh --help       # this message
+
+What this script does:
+  1. Detect Linux distro and install system packages (apt/dnf/pacman/zypper)
+  2. Add current user to 'input' group for evdev hotkey capture
+  3. Install udev rule for /dev/input/event* (Wayland hotkeys)
+  4. Download and install the binary release into ~/.local/opt/flowkey/current
+  5. Symlink ~/.local/bin/flowkey to the installed binary
+  6. Create ~/.local/share/applications/flowkey.desktop
+  7. Run 'flowkey install' for config bootstrap, autostart, and model pull
+EOF
+  fi
   exit 0
 }
 
@@ -379,6 +403,7 @@ run_source_install() {
   local pip_cmd pip_args=()
 
   log "Installing Flowkey from source checkout..."
+  [[ -n "$SCRIPT_DIR" ]] || fail "--from-source requires running install.sh from a checked-out repo, not curl | bash."
 
   if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
     pip_cmd="${VIRTUAL_ENV}/bin/python -m pip"
