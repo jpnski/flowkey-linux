@@ -2,23 +2,25 @@ from __future__ import annotations
 
 import logging
 
+import paths
 from config import PowerMode
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 
-from tui.dashboard._daemon import _daemon_post
+import engine
+import flm_server
 from tui.dashboard._pane import Pane
 from tui.dashboard.config_pane.chat_panel import ChatPanel
 from tui.dashboard.config_pane.chat_settings import FlmServerPanel
 from tui.dashboard.config_pane.flm import FlmModelPanel
-from tui.dashboard.config_pane.hotkeys import HotkeysPanel
-from tui.dashboard.config_pane.input_processing import InputProcessingPanel
 
-log = logging.getLogger("flowkey.tui.dashboard")
+log = logging.getLogger("ffchat.tui.dashboard")
+
+_FLM_UPDATE_CACHE = paths.DATA_DIR / "flm_update_cache.json"
 
 
 class ConfigPane(Pane):
-    """Config pane: FLM server, model, chat, input processing, hotkeys."""
+    """Config pane: FLM server, model, chat settings."""
 
     DEFAULT_CSS = """
     #config-tab-root {
@@ -39,88 +41,42 @@ class ConfigPane(Pane):
             yield FlmModelPanel(id="flm-model-panel")
             yield FlmServerPanel(id="flm-server-panel")
             yield ChatPanel(id="chat-panel")
-            yield InputProcessingPanel(id="input-processing-panel")
-            yield HotkeysPanel(id="hotkeys-panel")
 
     def _fetch(self) -> None:
-        config_resp = _daemon_post("config_snapshot")
+        try:
+            cfg = engine.build_config_snapshot()
+        except Exception as exc:
+            log.warning("config_snapshot failed: %s", exc)
+            cfg = {}
 
         # Fetch model lists and feed FlmModelPanel.
-        installed_resp = _daemon_post("models_installed")
-        not_installed_resp = _daemon_post("models_not_installed")
-        active = ""
-        installed_names: list[str] = []
-        not_installed_names: list[str] = []
-        daemon_reachable = True
+        installed_info = engine.list_flm_models("installed")
+        not_installed_info = engine.list_flm_models("not-installed")
 
-        if installed_resp.get("ok"):
-            installed_names = list((installed_resp.get("result") or {}).get("models") or [])
-        else:
-            daemon_reachable = False
-        if not_installed_resp.get("ok"):
-            not_installed_names = list(
-                (not_installed_resp.get("result") or {}).get("models") or []
-            )
-        else:
-            daemon_reachable = False
-        model_loaded = False
-        if config_resp.get("ok"):
-            cfg = config_resp.get("result") or {}
-            active = str(cfg.get("flm_server", {}).get("model") or "")
-            model_loaded = bool(cfg.get("flm_server", {}).get("flm_model_loaded", False))
+        installed_names: list[str] = list(installed_info.get("models") or [])
+        not_installed_names: list[str] = list(not_installed_info.get("models") or [])
+        daemon_reachable = "error" not in installed_info or "error" not in not_installed_info
 
-        # Read server config for FlmServerPanel.
-        server_cfg: dict = {}
-        if config_resp.get("ok"):
-            cfg = config_resp.get("result") or {}
-            server_cfg = cfg.get("flm_server") or {}
-
-        # Read chat config for ChatPanel.
-        chat_cfg: dict = {}
-        if config_resp.get("ok"):
-            cfg = config_resp.get("result") or {}
-            chat_cfg = cfg.get("chat") or {}
+        active = str(cfg.get("flm_server", {}).get("model") or "")
+        model_loaded = bool(cfg.get("flm_server", {}).get("flm_model_loaded", False))
+        server_cfg = cfg.get("flm_server") or {}
+        chat_cfg = cfg.get("chat") or {}
 
         # Fetch FLM runtime version info (uses server-side cache, ~24h TTL).
-        flm_version_resp = _daemon_post("flm_update_check", {"cache_only": True})
-        flm_runtime_data = flm_version_resp.get("result") if flm_version_resp.get("ok") else {}
-
-        # Pass hotkeys to HotkeysPanel.
-        transform_hotkeys: dict[str, str] = {}
-        interaction_hotkeys: dict[str, str] = {}
-        if config_resp.get("ok"):
-            cfg = config_resp.get("result") or {}
-            transform_hotkeys = dict(cfg.get("transform_hotkeys") or {})
-            interaction_hotkeys = dict(cfg.get("interaction_hotkeys") or {})
-
-        # Pass input_processing config to InputProcessingPanel.
-        input_processing_cfg: dict = {}
-        if config_resp.get("ok"):
-            input_processing_cfg = dict((config_resp.get("result") or {}).get("input_processing") or {})
+        try:
+            flm_runtime_data = flm_server.check_flm_update(
+                cache_path=_FLM_UPDATE_CACHE,
+                cache_only=True,
+            )
+        except Exception as exc:
+            log.warning("flm_update_check failed: %s", exc)
+            flm_runtime_data = {}
 
         # Update sub-panels (data-ingestion, not a render).
-        self.call_later(self._update_hotkeys_panel, transform_hotkeys, interaction_hotkeys)
-        self.call_later(self._update_input_processing_panel, input_processing_cfg)
         self.call_later(self._update_flm_panel, installed_names, not_installed_names,
                         active, daemon_reachable, model_loaded, flm_runtime_data)
         self.call_later(self._update_server_panel, server_cfg)
         self.call_later(self._update_chat_panel, chat_cfg)
-
-    def _update_hotkeys_panel(self, transform_hotkeys: dict, interaction_hotkeys: dict) -> None:
-        try:
-            panel = self.query_one(HotkeysPanel)
-        except Exception as exc:
-            log.warning("hotkeys panel not ready: %s", exc)
-            return
-        panel.update_hotkeys(transform_hotkeys, interaction_hotkeys)
-
-    def _update_input_processing_panel(self, cfg: dict) -> None:
-        try:
-            panel = self.query_one(InputProcessingPanel)
-        except Exception as exc:
-            log.warning("input processing panel not ready: %s", exc)
-            return
-        panel.update_config(cfg)
 
     def _update_flm_panel(self, installed: list[str], not_installed: list[str],
                           active: str, daemon_reachable: bool,

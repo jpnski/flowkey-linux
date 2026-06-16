@@ -1,13 +1,10 @@
-"""Textual chat interface for Flowkey.
-
-Replaces chat_popup.py with a streaming markdown chat in the terminal.
+"""Textual chat interface for ffchat.
 
 Features:
   - Streaming markdown responses from the local LLM
-  - Slash-commands: /grammar, /summarize, /explain, /prompt, /tone, /clear, /help
-  - Mode-prefix parsing (same as listener.py)
-  - Conversation thread management via daemon
-  - Non-streaming mode for mode-based text transforms
+  - Config-driven slash commands (/grammar, /summarize, /explain, /prompt, ...)
+  - Conversation thread management
+  - Direct FLM server lifecycle (no daemon)
 """
 
 from __future__ import annotations
@@ -15,13 +12,10 @@ from __future__ import annotations
 import json
 import logging
 import re
-import subprocess
 import threading
 import time
-from pathlib import Path
 
-import launcher
-import loopback_http
+import engine
 import version
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -29,57 +23,13 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.events import Click
 from textual.widgets import Markdown, Static, TextArea
 
+import config as _config
+
 from tui.dashboard.config_pane.flm import FlmModelPanel
 
-log = logging.getLogger("flowkey.tui.chat")
+log = logging.getLogger("ffchat.tui.chat")
 
-# ---------------------------------------------------------------------------
-# Constants & helpers
-# ---------------------------------------------------------------------------
-
-MODE_LABELS: dict[str, str] = {
-    "grammar": "Grammar fix",
-    "prompt": "Prompt rewrite",
-    "summarize": "Summarize",
-    "explain": "Explain",
-    "tone": "Tone shift",
-}
-
-SYSTEM_PROMPTS: dict[str, str] = {
-    "grammar": "Fix grammar, spelling, punctuation, capitalization, and obvious wording mistakes. Preserve meaning. Keep emoji/smiley characters exactly as written when possible. Return only corrected text.",
-    "summarize": "Summarize the user text as exactly 3 bullet points. Each bullet is one sentence, factual, no preamble or sign-off. Preserve emoji/smiley characters when relevant. Return only the bullets.",
-    "explain": "Explain the selected code, regex, or SQL in 2-3 plain-English sentences. Call out one non-obvious edge case if any. No preamble. Return only the explanation.",
-}
-
-HELP_TEXT = """
- ╔═════╗  ╔═════╗    ▄▄ ▄▄
- ║     ╟──╢     ║   ██  ██               ▄▄
- ╚══╤══╝  ╚══╤══╝  ▀██▀ ██ ▄███▄ ██   ██ ██ ▄█▀ ▄█▀█▄ ██ ██
- ╔══╧══╗  ╔══╧══╗   ██  ██ ██ ██ ██ █ ██ ████   ██▄█▀ ██▄██
- ║     ╟──╢     ║   ██  ██ ▀███▀  ██▀██  ██ ▀█▄ ▀█▄▄▄  ▀██▀
- ╚═════╝  ╚═════╝                                       ██
-                                                      ▀▀▀
-
-[i]Slash commands:[/i]
-  /grammar <text>    — Fix grammar and wording
-  /summarize <text>  — Summarize as 3 bullet points
-  /explain <text>    — Explain code/regex/SQL
-  /prompt <text>     — Rewrite as a Claude-ready prompt
-  /tone <text>       — Shift tone (current preset)
-  /clear             — Clear conversation history
-  /help              — Show this help
-
-[i]Mode prefixes:[/i]
-  grammar: <text>    — Same as /grammar
-  summarize: <text>  — Same as /summarize
-  explain: <text>    — Same as /explain
-
-[i]Shortcuts:[/i]
-  F1                 — Chat
-  F2                 — Dashboard
-  Ctrl+P             — Commands
-  Ctrl+C             — Quit (press twice)
-"""
+DEFAULT_SYSTEM_PROMPT = "You are a concise, helpful local assistant."
 
 
 class ChatHistory:
@@ -124,7 +74,7 @@ class ChatHistory:
         if self._messages and self._messages[-1]["role"] == "assistant":
             self._messages[-1]["content"] = content
 
-    def to_payload(self) -> list[dict]:
+    def to_payload(self, skip_system: bool = True) -> list[dict]:
         return [{"role": m["role"], "content": m["content"]} for m in self._messages]
 
     def clear(self) -> None:
@@ -155,14 +105,11 @@ class MessageBubble(Horizontal):
         if self._role == "user":
             content = content.replace("[", "[[")
 
-        # Assistant messages render as Markdown (bold/italic/code/lists work).
-        # User messages and help-text render as plain Static.
         if self._role == "assistant" and self._show_role:
             yield Markdown(content, classes="message-content", id=f"content-{self._msg_id}")
         else:
             yield Static(content, classes="message-content", id=f"content-{self._msg_id}")
 
-        # Assistant bubbles get a copy button; help-text (show_role=False) does not.
         if self._role == "assistant" and self._show_role:
             yield Static("📋", id=f"copy-{self._msg_id}", classes="copy-btn")
 
@@ -170,15 +117,9 @@ class MessageBubble(Horizontal):
 
     @staticmethod
     def _normalize_for_markdown(text: str) -> str:
-        """Strip Textual markup tags (e.g. [red], [/red]) for clean Markdown.
-
-        These tags appear in error/status messages produced by ChatWidget;
-        they are not valid Markdown and would render as literal text.
-        """
         return re.sub(r'\[/?(?:red|yellow|green|blue|bold|italic|dim|strike|underline)\]', '', text)
 
     def _rendered_content(self) -> str:
-        """Return content with user-markup escaping applied."""
         c = self._content
         if self._role == "user":
             c = c.replace("[", "[[")
@@ -187,11 +128,6 @@ class MessageBubble(Horizontal):
     # -- public API used by ChatWidget -----------------------------------------
 
     def update_content(self, content: str) -> None:
-        """Update content in-place (for streaming).
-
-        Assistant bubbles (Markdown widget) get Textual-markup stripped for
-        clean display.  User/help bubbles (Static widget) get bracket escaping.
-        """
         self._content = content
         try:
             widget = self.query_one(f"#content-{self._msg_id}")
@@ -203,7 +139,6 @@ class MessageBubble(Horizontal):
             log.warning("could not update bubble content: %s", exc)
 
     def finalize_stream(self) -> None:
-        """Mark streaming as complete — no role label to update anymore."""
         self._is_streaming = False
 
     # -- event handlers --------------------------------------------------------
@@ -294,7 +229,6 @@ class ChatWidget(Container):
         width: 1fr;
     }
 
-    /* Text color: user messages faded, assistant messages vivid */
     #chat-messages > MessageBubble.user .message-content {
         color: $text-muted;
     }
@@ -302,9 +236,6 @@ class ChatWidget(Container):
         color: $text;
     }
 
-
-
-    /* Copy button on assistant response bubbles (clickable Static) */
     .copy-btn {
         width: 3;
         height: 1;
@@ -331,30 +262,22 @@ class ChatWidget(Container):
         self._streaming_active = False
         self._current_bubble: MessageBubble | None = None
         self._llm_base_url = "http://127.0.0.1:52625"
-        self._llm_model = "gemma4-it:e4b"
-        # Timestamp of the last set_model() call.  _refresh_config uses this
-        # to avoid overwriting _llm_model with stale data from the daemon
-        # before its config_snapshot has converged after a model change.
+        self._llm_model = ""
         self._model_set_at: float = 0.0
-        # Chat config values — driven by config.json chat section,
-        # populated by _refresh_config on each daemon snapshot poll.
         self._temperature: float = 0.3
         self._max_tokens: int = 1024
-        self._system_prompt: str = "You are a concise, helpful local assistant."
+        self._system_prompt: str = DEFAULT_SYSTEM_PROMPT
         self._request_timeout: int = 240
         self._context_window_turns: int = 12
-        # Cached reference to the footer Static — set in on_mount.
-        # Avoids query_one() calls from async worker contexts (which can
-        # silently fail when the Chat tab is not the active tab).
+        self._slash_commands: list[_config.SlashCommand] = []
         self._status_widget: Static | None = None
 
     def is_streaming(self) -> bool:
-        """True while an LLM stream is in flight (chat or mode-fix)."""
         return self._streaming_active
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="chat-messages"):
-            yield MessageBubble("assistant", HELP_TEXT, show_role=False)
+            yield MessageBubble("assistant", self._build_help_text(), show_role=False)
 
         with Vertical(id="chat-input-row"):
             yield TextArea(
@@ -368,84 +291,57 @@ class ChatWidget(Container):
 
     def on_mount(self) -> None:
         self._status_widget = self.query_one("#connection-status", Static)
-        self._status_widget.update("Connecting to daemon…")
         self._refresh_config()
-        self.set_interval(5.0, self._refresh_config)
+        self.set_interval(10.0, self._refresh_config)
 
     # ---- Config refresh ----
 
     def _refresh_config(self) -> None:
-        """Pull live config from daemon."""
+        """Read config and FLM status directly (no daemon)."""
         try:
-            resp = loopback_http.daemon_post("config_snapshot", timeout=2.0)
-            if resp.get("ok") and isinstance(resp.get("result"), dict):
-                result = resp["result"]
-                self._llm_base_url = str(result.get("flm_api", {}).get("url") or self._llm_base_url)
-
-                daemon_model = str(result.get("flm_server", {}).get("model") or "")
-                # True when the FLM server is reachable (TCP port open). The
-                # config patch flow additionally runs a warmup request before
-                # returning, so by the time `flm_model_loaded` goes True the
-                # model has responded to a real API call — not just opened a
-                # port.
-                model_loaded = bool(result.get("flm_server", {}).get("flm_model_loaded", False))
-
-                # Has set_model() been called recently?  If so we trust the
-                # explicitly pushed model (it came from a daemon-confirmed
-                # model-switch) and skip the daemon-snapshot value.
-                recent_push = time.monotonic() - self._model_set_at <= 60.0
-
-                if daemon_model:
-                    # Accept the daemon's model name only when it hasn't been
-                    # overwritten by set_model() in the last 60 seconds.
-                    if not recent_push:
-                        self._llm_model = daemon_model
-                    # Show the model name only when the model is confirmed
-                    # loaded, OR when it was just explicitly pushed (which
-                    # happens after a daemon-confirmed model switch).
-                    if model_loaded or recent_push:
-                        model_display = self._llm_model
-                    else:
-                        model_display = "(none)"
-                else:
-                    # Daemon has no model configured (e.g. FLM not running yet).
-                    self._llm_model = ""
-                    model_display = "(none)"
-
-                # Read chat config (temperature, max_tokens, system_prompt,
-                # request timeout) from the daemon snapshot.
-                chat_cfg = result.get("chat") or {}
-                self._temperature = float(chat_cfg.get("temperature") or self._temperature)
-                self._max_tokens = int(chat_cfg.get("max_tokens") or self._max_tokens)
-                sp = str(chat_cfg.get("system_prompt") or "").strip()
-                if sp:
-                    self._system_prompt = sp
-                self._request_timeout = int(chat_cfg.get("request_timeout_s") or self._request_timeout)
-                self._context_window_turns = int(chat_cfg.get("context_window_turns") or self._context_window_turns)
-
-                self._update_status(f"Model: {model_display}  |  Daemon: connected")
-                return
+            cfg = engine.build_config_snapshot()
         except Exception as exc:
-            log.warning("daemon config poll failed: %s", exc)
-        self._update_status("Daemon: not connected — config may be stale")
+            log.warning("config_snapshot failed: %s", exc)
+            return
+
+        self._llm_base_url = str(cfg.get("flm_api", {}).get("url") or self._llm_base_url)
+        daemon_model = str(cfg.get("flm_server", {}).get("model") or "")
+        model_loaded = bool(cfg.get("flm_server", {}).get("flm_model_loaded", False))
+        recent_push = time.monotonic() - self._model_set_at <= 60.0
+
+        if daemon_model:
+            if not recent_push:
+                self._llm_model = daemon_model
+            model_display = self._llm_model if (model_loaded or recent_push) else "(none)"
+        else:
+            model_display = "(none)"
+
+        chat_cfg = cfg.get("chat") or {}
+        self._temperature = float(chat_cfg.get("temperature") or self._temperature)
+        self._max_tokens = int(chat_cfg.get("max_tokens") or self._max_tokens)
+        sp = str(chat_cfg.get("system_prompt") or "").strip()
+        if sp:
+            self._system_prompt = sp
+        self._request_timeout = int(chat_cfg.get("request_timeout_s") or self._request_timeout)
+        self._context_window_turns = int(chat_cfg.get("context_window_turns") or self._context_window_turns)
+
+        # Read slash commands from config.
+        try:
+            app_cfg = _config.load_config()
+            self._slash_commands = list(app_cfg.slash_commands)
+        except Exception as exc:
+            log.warning("could not load slash commands: %s", exc)
+
+        status = f"Model: {model_display}"
+        if self._status_widget is not None:
+            self._status_widget.update(status)
 
     def set_model(self, model_name: str) -> None:
-        """Directly push the active model name (bypasses daemon poll).
-
-        Called by FlmModelPanel after a successful model change so the chat
-        footer and request target are correct *before* the daemon's config
-        snapshot converges.  Avoids the race where _refresh_config polls the
-        daemon and gets stale data.
-        """
         self._llm_model = model_name
         self._model_set_at = time.monotonic()
-        self._update_status(
-            f"Model: {model_name if model_name else '(none)'}  |  Daemon: connected"
-        )
-
-    def _update_status(self, text: str) -> None:
+        status = f"Model: {model_name if model_name else '(none)'}"
         if self._status_widget is not None:
-            self._status_widget.update(text)
+            self._status_widget.update(status)
 
     # ---- Input handling ----
 
@@ -488,8 +384,6 @@ class ChatWidget(Container):
         if self._streaming_active:
             return
 
-        # Block input while the FLM model is being restarted — the XRT
-        # NPU context would be destroyed mid-inference, causing an error.
         try:
             panel = self.app.query_one(FlmModelPanel)
             if panel.restarting:
@@ -501,19 +395,28 @@ class ChatWidget(Container):
         except Exception as exc:
             log.warning("could not check model restart status: %s", exc)
 
-        # Check for slash commands
         if text.startswith("/"):
             self._handle_slash_command(text)
             return
 
-        # Check for mode prefix
-        mode, body = self._parse_mode_and_text(text)
-        if mode != "grammar" and body:
-            self._handle_mode_transform(mode, body)
-            return
-
-        # Default: regular chat message
         self._send_chat_message(text)
+
+    # ---- Slash commands (config-driven) ----
+
+    def _build_help_text(self) -> str:
+        lines = ["[bold]Slash commands:[/]"]
+        for c in self._slash_commands:
+            desc = c.description or ""
+            lines.append(f"  /{c.name} <text>  — {desc}")
+        lines.append("  /clear           — Clear conversation history")
+        lines.append("  /help            — Show this help")
+        lines.append("")
+        lines.append("[bold]Shortcuts:[/]")
+        lines.append("  F1            — Chat")
+        lines.append("  F2            — Dashboard")
+        lines.append("  Ctrl+P        — Commands")
+        lines.append("  Ctrl+C        — Quit (press twice)")
+        return "\n".join(lines)
 
     def _handle_slash_command(self, text: str) -> None:
         parts = text.split(maxsplit=1)
@@ -522,94 +425,29 @@ class ChatWidget(Container):
 
         if cmd == "/clear":
             self._clear_history()
-        elif cmd == "/help":
-            self._add_message("assistant", HELP_TEXT, show_role=False)
-        elif cmd in ("/grammar",):
-            self._handle_mode_transform("grammar", args or self._get_last_selection())
-        elif cmd in ("/summarize",):
-            self._handle_mode_transform("summarize", args or self._get_last_selection())
-        elif cmd in ("/explain",):
-            self._handle_mode_transform("explain", args or self._get_last_selection())
-        elif cmd in ("/prompt",):
-            self._handle_mode_transform("prompt", args)
-        elif cmd in ("/tone",):
-            self._handle_mode_transform("tone", args)
+            return
+        if cmd == "/help":
+            self._add_message("assistant", self._build_help_text(), show_role=False)
+            return
+
+        cmd_name = cmd[1:]  # strip leading /
+        command_cfg = next((c for c in self._slash_commands if c.name == cmd_name), None)
+        if command_cfg is not None:
+            if not args:
+                args = self._get_last_selection()
+            if args:
+                user_label = f"/{cmd_name}: {args[:200]}{'…' if len(args) > 200 else ''}"
+                self._send_chat_message(args, system_prompt_override=command_cfg.system_prompt, user_label=user_label)
+            else:
+                self._add_message("assistant", f"[yellow]No text provided for /{cmd_name}.[/]")
         else:
             self._add_message("assistant", f"Unknown command: {cmd}\n\nType /help for available commands.")
 
-    def _handle_mode_transform(self, mode: str, text: str) -> None:
-        """Run a mode-based text transform for the given input."""
-        if not text:
-            self._add_message("assistant", f"[yellow]No text provided for {mode} mode.[/]")
-            return
+    # ---- Chat message sending ----
 
-        self._add_message("user", f"[{MODE_LABELS.get(mode, mode)}] {text[:200]}{'…' if len(text) > 200 else ''}")
-        self._add_message("assistant", f"Running {mode}...", is_streaming=True)
-
-        def _run():
-            try:
-                result = self._run_mode_transform(mode, text)
-                self.call_later(self._finalize_stream, result)
-            except Exception as exc:
-                self.call_later(self._finalize_stream, f"[red]Error: {exc}[/]")
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _run_mode_transform(self, mode: str, text: str) -> str:
-        """Run the flowkey process subcommand for a mode transform."""
-        import tempfile
-
-        infile = None
-        outfile = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", prefix="flowkey_in_",
-                delete=False, encoding="utf-8",
-            ) as f_in:
-                f_in.write(text)
-                infile = f_in.name
-
-            outfile_obj = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".txt", prefix="flowkey_out_",
-                delete=False, encoding="utf-8",
-            )
-            outfile = outfile_obj.name
-            outfile_obj.close()
-
-            result = subprocess.run(
-                launcher.flowkey_argv("process", "--mode", mode, "--input-file", infile, "--output-file", outfile),
-                capture_output=True, text=True, timeout=120, check=False,
-            )
-            if result.returncode != 0:
-                err = (result.stderr or "").strip() or f"exit code {result.returncode}"
-                return f"[red]Text transform failed: {err}[/]"
-
-            output = Path(outfile).read_text(encoding="utf-8").strip()
-            return output or "[yellow]No output returned[/]"
-
-        except subprocess.TimeoutExpired:
-            return "[red]Text transform timed out after 120s[/]"
-        except OSError as exc:
-            return f"[red]Failed to launch text transform: {exc}[/]"
-        finally:
-            for p in (infile, outfile):
-                if p:
-                    try:
-                        Path(p).unlink()
-                    except OSError:
-                        pass
-
-    def post_ingested_text(self, text: str) -> None:
-        """Called by the TUI app when launched with --ingest-file.
-
-        Sends the text into the chat as if the user typed it.
-        """
-        if text:
-            self._send_chat_message(text)
-
-    def _send_chat_message(self, text: str) -> None:
-        """Send a regular chat message to the LLM with streaming."""
-        # Guard: don't send if FLM is restarting.
+    def _send_chat_message(self, text: str, *,
+                           system_prompt_override: str | None = None,
+                           user_label: str | None = None) -> None:
         try:
             panel = self.app.query_one(FlmModelPanel)
             if panel.restarting:
@@ -620,41 +458,39 @@ class ChatWidget(Container):
                 return
         except Exception as exc:
             log.warning("model restart check failed: %s", exc)
-        self._add_message("user", text)
+
+        display_text = user_label or text
+        self._add_message("user", display_text)
         self._add_message("assistant", "…", is_streaming=True)
 
-        # Trim history to the last N complete exchanges (context_window_turns).
-        # Each exchange is a user↔assistant pair (2 messages). Add 2 for the
-        # current in-progress exchange (<user_msg>, "…") that was just added.
         self._history.trim_to_window(self._context_window_turns, extra=2)
-
         history = self._history.to_payload()
 
         threading.Thread(
             target=self._stream_llm_response,
             args=(text, list(history)),
+            kwargs={"system_prompt": system_prompt_override},
             daemon=True,
         ).start()
 
-    def _stream_llm_response(self, user_text: str, history: list[dict]) -> None:
+    def _stream_llm_response(self, user_text: str, history: list[dict], *,
+                              system_prompt: str | None = None) -> None:
         """Stream LLM response via OpenAI-compatible SSE endpoint."""
+        sp = system_prompt or self._system_prompt
+
         # Ensure the FLM server is running before attempting the chat request.
-        try:
-            resp = loopback_http.daemon_post("start", timeout=30.0)
-            if not resp.get("ok"):
-                raise RuntimeError(str(resp.get("error") or "start failed"))
-            # Server started — schedule an immediate config refresh so the
-            # footer flips from "(none)" to the model name without waiting
-            # for the next poll interval (up to 30s with the old timer).
-            self.call_later(self._refresh_config)
-        except Exception as exc:
-            self.call_later(self._finalize_stream,
-                            f"[red]Could not start LLM server: {exc}[/]")
-            return
+        if not engine.is_flm_server_reachable():
+            try:
+                result = engine.start_flm_server()
+                log.info("start_flm_server: %s", result)
+            except Exception as exc:
+                self.call_later(self._finalize_stream,
+                                f"[red]Could not start LLM server: {exc}[/]")
+                return
 
         import urllib.request
 
-        messages = [{"role": "system", "content": self._system_prompt}]
+        messages = [{"role": "system", "content": sp}]
         messages.extend(history)
 
         body = json.dumps({
@@ -684,7 +520,6 @@ class ChatWidget(Container):
                     if not chunk:
                         break
                     buffer += chunk.decode("utf-8", errors="replace")
-                    # Parse SSE events
                     while "\n" in buffer:
                         line, buffer = buffer.split("\n", 1)
                         line = line.strip()
@@ -713,8 +548,8 @@ class ChatWidget(Container):
             error_body = ""
             try:
                 error_body = exc.read().decode("utf-8", errors="replace")[:200]
-            except Exception as inner:
-                log.warning("could not decode error body: %s", inner)
+            except Exception:
+                pass
             err_msg = f"[red]LLM HTTP {exc.code}: {error_body}[/]"
             self.call_later(self._finalize_stream, err_msg)
         except Exception as exc:
@@ -725,7 +560,6 @@ class ChatWidget(Container):
 
     def _add_message(self, role: str, content: str, is_streaming: bool = False,
                      show_role: bool = True) -> None:
-        """Add a message to the chat log."""
         msg = self._history.add(role, content)
         msg_id = msg["msg_id"]
 
@@ -743,27 +577,21 @@ class ChatWidget(Container):
             self._streaming_active = True
 
     def _update_stream(self, content: str) -> None:
-        """Update the current streaming bubble with new content."""
         if self._current_bubble is not None:
             self._current_bubble.update_content(content)
             self.call_after_refresh(self._scroll_chat_to_bottom)
 
     def _finalize_stream(self, content: str) -> None:
-        """Finalize a streaming or processing response."""
         if self._current_bubble is not None:
             self._current_bubble.update_content(content)
             self._current_bubble.finalize_stream()
             self._current_bubble = None
 
         self._streaming_active = False
-
-        # Update history with final content
         self._history.update_last_assistant(content)
-
         self.call_after_refresh(self._scroll_chat_to_bottom)
 
     def _scroll_chat_to_bottom(self) -> None:
-        """Keep the newest assistant content visible at the bottom of the log."""
         try:
             messages = self.query_one("#chat-messages", VerticalScroll)
             messages.scroll_end(animate=False)
@@ -771,14 +599,12 @@ class ChatWidget(Container):
             log.debug("could not scroll chat to bottom: %s", exc)
 
     def _clear_history(self) -> None:
-        """Clear all messages."""
         self._history.clear()
         messages = self.query_one("#chat-messages", VerticalScroll)
         messages.remove_children()
         self._add_message("assistant", "— conversation cleared —")
 
     def _get_last_selection(self) -> str:
-        """Placeholder: get last clipboard content as fallback."""
         import pyperclip
         try:
             return pyperclip.paste()
@@ -786,54 +612,8 @@ class ChatWidget(Container):
             log.debug("clipboard paste failed: %s", exc)
             return ""
 
-    # ---- Mode prefix parsing (ported from listener.py) ----
+    # ---- Ingest (called by TUI app when launched with --ingest-file) ----
 
-    _MODE_PREFIX_ENTRIES: list[tuple[str, str]] = [
-        ("prompt", r"(?:prompts|prompt)"),
-        ("summarize", r"(?:summarizes|summarize)"),
-        ("explain", r"(?:explains|explain)"),
-        ("tone", r"tone"),
-    ]
-
-    def _parse_mode_and_text(self, text: str) -> tuple[str, str]:
-        """Detect mode prefix keywords on the first non-empty line.
-
-        Returns (mode, body_text) where mode is one of 'grammar', 'prompt',
-        'summarize', 'explain', 'tone'. Default mode is 'grammar'.
-        """
-        raw = text.strip("\r\n\t ")
-        if raw and raw[0] == "\ufeff":
-            raw = raw[1:]
-        if not raw:
-            return ("grammar", "")
-        lines = raw.split("\n")
-        first_idx: int | None = None
-        for i, line in enumerate(lines):
-            stripped = line.strip("\t ")
-            if stripped:
-                first_idx = i
-                break
-        if first_idx is not None:
-            first_line = lines[first_idx].strip("\t ")
-            for mode, kw in self._MODE_PREFIX_ENTRIES:
-                pattern = r"^\s*[>\-\*]*\s*/?" + kw + r"(\s*:\s*|\s*-\s+|$|\s+)(.*)$"
-                m = re.match(pattern, first_line, re.IGNORECASE)
-                if m:
-                    parts: list[str] = []
-                    inline_body = m.group(2).strip("\t ")
-                    if inline_body:
-                        parts.append(inline_body)
-                    for j in range(first_idx + 1, len(lines)):
-                        stripped_line = lines[j].strip("\t ")
-                        if stripped_line:
-                            parts.append(stripped_line)
-                    body = "\n".join(parts).strip("\r\n\t ")
-                    return (mode, body)
-        # Inline check
-        for mode, kw in self._MODE_PREFIX_ENTRIES:
-            pattern = r"^\s*[>\-\*]*\s*/?" + kw + r"(\s*:\s*|\s*-\s+|\s+)(.+)$"
-            m = re.match(pattern, raw, re.IGNORECASE)
-            if m:
-                body = m.group(2).strip("\r\n\t ")
-                return (mode, body)
-        return ("grammar", raw)
+    def post_ingested_text(self, text: str) -> None:
+        if text:
+            self._send_chat_message(text)

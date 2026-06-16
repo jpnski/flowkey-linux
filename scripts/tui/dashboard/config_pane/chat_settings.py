@@ -7,15 +7,13 @@ import logging
 from functools import partial
 from typing import Any
 
+import engine
 from config import PowerMode
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import RadioButton, RadioSet, Static
 
-from tui.dashboard import DashboardWidget
-from tui.dashboard._daemon import _daemon_post
-
-log = logging.getLogger("flowkey.tui.dashboard")
+log = logging.getLogger("ffchat.tui.dashboard")
 
 
 class FlmServerPanel(Vertical):
@@ -77,12 +75,7 @@ class FlmServerPanel(Vertical):
     # ---- Data ingestion (called by ConfigPane) ----
 
     def update_server_settings(self, auto_start: bool, power_mode: str, log_to_file: bool = True) -> None:
-        """Set all server radio sets from a config snapshot.
-
-        ``RadioSet`` has no ``value`` property — the correct way to select
-        a button programmatically is ``RadioButton.value = True`` on the
-        target button (the RadioSet handles mutual exclusion).
-        """
+        """Set all server radio sets from a config snapshot."""
         self._auto_start = auto_start
         self._power_mode = power_mode
         self._log_to_file = log_to_file
@@ -167,22 +160,20 @@ class FlmServerPanel(Vertical):
         if "log_to_file" in server_patch:
             patch.setdefault("flm_server", {})["log_to_file"] = server_patch["log_to_file"]
 
-        resp = await asyncio.to_thread(
-            _daemon_post, "apply_config_patch",
-            {"patch": patch},
-        )
-        if resp.get("ok"):
-            self.app.notify("Server setting updated", severity="information")
+        try:
+            result = await asyncio.to_thread(engine.apply_config_patch, patch)
+            self.app.notify(f"Server setting updated: {result}", severity="information")
             try:
+                from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
             except Exception as exc:
                 log.warning("could not refresh dashboard after server update: %s", exc)
-        else:
+        except Exception as exc:
             self._auto_start = old_auto_start
             self._power_mode = old_perf
             self._log_to_file = old_log
             self.update_server_settings(self._auto_start, self._power_mode, self._log_to_file)
             self.app.notify(
-                f"Failed to update: {resp.get('error', 'unknown')}",
+                f"Failed to update: {exc}",
                 severity="error", timeout=5,
             )

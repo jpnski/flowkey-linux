@@ -1,6 +1,6 @@
-"""Textual dashboard for Flowkey.
+"""Textual dashboard for ffchat.
 
-Multi-panel terminal UI composed of independent pane widgets,
+Single-panel dashboard composing independent pane widgets,
 each responsible for its own data-fetching and rendering.
 """
 
@@ -11,16 +11,17 @@ import threading
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import TabbedContent, TabPane
 
-from tui.dashboard._daemon import REFRESH_INTERVAL
 from tui.dashboard._pane import Pane
+from tui.dashboard.config_pane import ConfigPane
 
-log = logging.getLogger("flowkey.tui.dashboard")
+log = logging.getLogger("ffchat.tui.dashboard")
+
+REFRESH_INTERVAL: float = 10.0
 
 
 class DashboardWidget(Vertical):
-    """Multi-panel dashboard with tabs.
+    """Dashboard composing pane widgets.
 
     Acts as a thin coordinator: composes pane widgets and delegates
     data-fetching / rendering to each.
@@ -28,10 +29,6 @@ class DashboardWidget(Vertical):
 
     DEFAULT_CSS = """
     DashboardWidget {
-        height: 100%;
-    }
-
-    #dashboard-tabs {
         height: 100%;
     }
 
@@ -84,31 +81,10 @@ class DashboardWidget(Vertical):
         height: auto;
         max-height: 20;
     }
-
-    #bench-result-table {
-        height: auto;
-        max-height: 20;
-    }
     """
 
     def compose(self) -> ComposeResult:
-        from tui.dashboard.benchmark import BenchmarkPane
-        from tui.dashboard.config_pane import ConfigPane
-        from tui.dashboard.history import HistoryPane
-        from tui.dashboard.notes import NotesPane
-        from tui.dashboard.telemetry import TelemetryPane
-
-        with TabbedContent(id="dashboard-tabs"):
-            with TabPane("Config", id="tab-config"):
-                yield ConfigPane()
-            with TabPane("Telemetry", id="tab-telemetry"):
-                yield TelemetryPane()
-            with TabPane("Benchmark", id="tab-bench"):
-                yield BenchmarkPane()
-            with TabPane("Notes", id="tab-notes"):
-                yield NotesPane()
-            with TabPane("History", id="tab-history"):
-                yield HistoryPane()
+        yield ConfigPane()
 
     def on_mount(self) -> None:
         # First load: synchronous so data appears immediately.

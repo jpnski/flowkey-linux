@@ -41,6 +41,3 @@ venv/
 # OS junk
 .DS_Store
 Thumbs.db
-
-# Local verification checklist
-verification.md

@@ -1,9 +1,9 @@
-r"""Centralized path resolver for Flowkey (Linux-only).
+r"""Centralized path resolver for ffchat (Linux-only).
 
 All other modules import path constants from here instead of constructing
 their own `Path(__file__).resolve().parent / "foo.json"` lines. That way
-moving files between folders (config/, data/, logs/, setup/) only requires
-editing this file.
+moving files between folders (config/, data/, logs/) only requires editing
+this file.
 
 Two runtime modes are recognized:
 
@@ -12,9 +12,8 @@ Two runtime modes are recognized:
        ./
         ├── scripts/   ← Python source (this file lives here)
         │   └── config.seed.json   ← tracked seed config
-        ├── config/
         ├── data/      ← runtime data
-        └── logs/      ← daemon.log, flm_server.log
+        └── logs/      ← flm_server.log
 
    APP_DIR = USER_ROOT = the app root (single tree).
 
@@ -41,7 +40,7 @@ SCRIPTS_DIR: Path = Path(__file__).resolve().parent
 def _user_local_root() -> Path:
     """User-local writable root for runtime state.
 
-    Uses $XDG_DATA_HOME/Flowkey, falling back to ~/.local/share/Flowkey.
+    Uses $XDG_DATA_HOME/ffchat, falling back to ~/.local/share/ffchat.
     """
     xdg_data = os.environ.get("XDG_DATA_HOME")
     if xdg_data:
@@ -87,19 +86,12 @@ def ensure_dirs() -> None:
 CONFIG_FILE:         Path = USER_ROOT / "config.json"
 
 # Runtime data
-COUNTERS_FILE:       Path = DATA_DIR / "prompt_counters.ini"
-PROMPT_HISTORY_FILE: Path = DATA_DIR / "prompt_history.jsonl"
-GRAMMAR_HISTORY_FILE: Path = DATA_DIR / "grammar_fix_history.jsonl"
-CHAT_THREADS_FILE:   Path = DATA_DIR / "chat_threads.jsonl"
 FLM_PID_FILE:        Path = DATA_DIR / "flm_server.pid"
 
 # Markers (tiny presence-only files)
-MARKER_CLIPBOARD_WATCHER: Path = DATA_DIR / ".clipboard_watcher_on"
 MARKER_FIRST_RUN_DONE:    Path = DATA_DIR / ".first_run_done"
-MARKER_OPEN_DASHBOARD:    Path = DATA_DIR / ".open_dashboard"
 
 # Logs
-DAEMON_LOG_FILE:     Path = LOGS_DIR / "daemon.log"
 FLM_SERVER_LOG_FILE: Path = LOGS_DIR / "flm_server.log"
 
 # Source template shipped in the source tree. On first run we copy it to

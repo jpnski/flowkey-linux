@@ -21,36 +21,25 @@ def test_validate_patch_file_rejects_outside_allowed(tmp_path):
         config.validate_patch_file(outside)
 
 
-def test_filter_config_patch_modes_whitelist():
+def test_filter_config_patch_whitelist():
     patch = {
-        "transform_hotkeys": {
-            "grammar": "Ctrl+Alt+G",
-            "prompt": "Ctrl+Shift+P",
-            "evil": "blocked",
-        },
-        "interaction_hotkeys": {
-            "open_chat": "ctrl+alt+t",
-            "capture_note": "ctrl+alt+n",
-            "ask_chat": "ctrl+alt+a",
-            "grammar_fix": "blocked",
-        },
-        "terminal": "kitty",
-        "modes": {
-            "tone": {"preset": "casual"},
-            "grammar": {"system_prompt": "evil"},
-        }
+        "flm_server": {"model": "gemma3:4b", "power_mode": "performance"},
+        "chat": {"temperature": 0.5},
+        "evil": "blocked",
     }
     filtered = config.filter_config_patch(patch)
-    assert filtered == {
-        "transform_hotkeys": {"grammar": "Ctrl+Alt+G", "prompt": "Ctrl+Shift+P"},
-        "interaction_hotkeys": {
-            "open_chat": "ctrl+alt+t",
-            "capture_note": "ctrl+alt+n",
-            "ask_chat": "ctrl+alt+a",
-        },
-        "terminal": "kitty",
-        "modes": {"tone": {"preset": "casual"}},
+    allowed = {
+        "flm_server": {"model": "gemma3:4b", "power_mode": "performance"},
+        "chat": {"temperature": 0.5},
     }
+    assert filtered == allowed
+    assert "evil" not in filtered
+
+
+def test_filter_config_patch_rejects_non_whitelisted_sections():
+    patch = {"terminal": "kitty", "modes": {}, "notes": {}}
+    filtered = config.filter_config_patch(patch)
+    assert filtered == {}
 
 
 def test_save_config_atomic(tmp_path):
@@ -65,29 +54,25 @@ def test_save_config_atomic(tmp_path):
     assert loaded["flm_server"]["model"] == "b"
 
 
-def test_load_config_deep_merges_mode_defaults(tmp_path):
+def test_load_config_deep_merges_sections(tmp_path):
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps({
-        "transform_hotkeys": {
-            "grammar": "Ctrl+Alt+G",
-            "prompt": "Ctrl+Shift+P",
-        },
-        "modes": {
-            "tone": {"preset": "casual"},
-            "summarize": {"label": "Summarize"},
-        }
+        "slash_commands": [
+            {"name": "custom", "system_prompt": "Do X", "description": "", "max_tokens": 512},
+        ],
     }), encoding="utf-8")
 
     loaded = config.load_config(cfg_path)
 
-    assert loaded.transform_hotkeys.grammar == "Ctrl+Alt+G"
-    assert loaded.transform_hotkeys.prompt == "Ctrl+Shift+P"
-    assert loaded.modes["tone"].preset == "casual"
-    assert loaded.modes["tone"].presets is not None
-    # summarize mode provided via config is loaded with defaults for unspecified fields
-    assert loaded.modes["summarize"].label == "Summarize"
+    assert len(loaded.slash_commands) == 1
+    assert loaded.slash_commands[0].name == "custom"
+    assert loaded.slash_commands[0].system_prompt == "Do X"
+    # Other fields get defaults
+    assert loaded.flm_server.model == "gemma4-it:e4b"
 
 
-def test_flowkey_config_includes_terminal_default():
+def test_flowkey_config_defaults():
     cfg = config.FlowkeyConfig()
-    assert cfg.terminal == ""
+    assert cfg.flm_server.model == "gemma4-it:e4b"
+    assert cfg.flm_server.power_mode == "balanced"
+    assert cfg.slash_commands == []

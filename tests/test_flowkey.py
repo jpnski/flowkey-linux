@@ -1,66 +1,61 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+import pytest
+
+pytest.importorskip("textual")
 
 
-def test_flowkey_help_lists_subcommands(capsys):
-    import flowkey
+def test_ffchat_help_shows_usage(capsys):
+    import ffchat
 
-    rc = flowkey.main(["--help"])
+    rc = ffchat.main(["--help"])
 
     out = capsys.readouterr().out
     assert rc == 0
-    assert "usage: flowkey <command>" in out
-    assert "daemon" in out
-    assert "process" in out
-    assert "tui" in out
+    assert "ffchat" in out
+    assert "--parent-pid" in out
 
 
-def test_flowkey_unknown_command_returns_2(capsys):
-    import flowkey
+def test_ffchat_version_prints(capsys):
+    import ffchat
+    import version
 
-    rc = flowkey.main(["bogus"])
+    rc = ffchat.main(["-V"])
 
-    err = capsys.readouterr().err
+    out = capsys.readouterr().out.strip()
+    assert rc == 0
+    assert out == version.APP_VERSION
+
+
+def test_ffchat_no_args_launches_tui(monkeypatch):
+    import ffchat
+
+    called = []
+
+    def fake_tui(argv=None):
+        called.append(argv)
+        return 0
+
+    monkeypatch.setattr(ffchat.tui_main, fake_tui)
+
+    rc = ffchat.main([])
+
+    assert rc == 0
+    assert called == [None]
+
+
+def test_ffchat_unknown_flag_passes_through(monkeypatch):
+    import ffchat
+
+    called = []
+
+    def fake_tui(argv):
+        called.append(argv)
+        return 2
+
+    monkeypatch.setattr(ffchat.tui_main, fake_tui)
+
+    rc = ffchat.main(["--bogus"])
+
     assert rc == 2
-    assert "Unknown command" in err
-
-
-def test_flowkey_dispatches_to_subcommand(monkeypatch):
-    import flowkey
-
-    seen = {}
-
-    def fake_import(name: str):
-        def fake_main(argv):
-            seen[name] = list(argv)
-            return 0
-
-        return SimpleNamespace(main=fake_main)
-
-    monkeypatch.setattr(flowkey.importlib, "import_module", fake_import)
-
-    rc = flowkey.main(["process", "--mode", "grammar", "--input-file", "in.txt"])
-
-    assert rc == 0
-    assert seen == {"engine": ["--mode", "grammar", "--input-file", "in.txt"]}
-
-
-def test_flowkey_process_forwards_empty_argv(monkeypatch):
-    import flowkey
-
-    seen = {}
-
-    def fake_import(name: str):
-        def fake_main(argv):
-            seen[name] = list(argv)
-            return 0
-
-        return SimpleNamespace(main=fake_main)
-
-    monkeypatch.setattr(flowkey.importlib, "import_module", fake_import)
-
-    rc = flowkey.main(["process"])
-
-    assert rc == 0
-    assert seen == {"engine": []}
+    assert called == [["--bogus"]]

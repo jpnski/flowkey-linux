@@ -220,5 +220,5 @@ def test_start_flm_server_uses_sanitized_env(monkeypatch, tmp_path):
 
     assert out == "started"
     assert cap["argv"][:2] == ["flm", "serve"]
-    assert cap["kwargs"].get("stdout") is None
-    assert cap["kwargs"].get("stderr") is None
+    assert cap["kwargs"].get("stdout") is flm_server.subprocess.DEVNULL
+    assert cap["kwargs"].get("stderr") is flm_server.subprocess.DEVNULL

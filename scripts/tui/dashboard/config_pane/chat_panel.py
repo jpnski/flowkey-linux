@@ -7,13 +7,12 @@ import logging
 import time
 from typing import Any
 
+import engine
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Input, Static
 
-from tui.dashboard._daemon import _daemon_post
-
-log = logging.getLogger("flowkey.tui.dashboard")
+log = logging.getLogger("ffchat.tui.dashboard")
 
 _CHAT_DEFAULTS: dict[str, float] = {
     "temperature": 0.3,
@@ -105,7 +104,7 @@ class ChatPanel(Vertical):
     }
     """
 
-    STALE_THRESHOLD: float = 12.0  # skip config snapshot updates within this many seconds of a user change (must be > REFRESH_INTERVAL=10)
+    STALE_THRESHOLD: float = 12.0  # skip config snapshot updates within this many seconds of a user change
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -145,12 +144,7 @@ class ChatPanel(Vertical):
     # ---- Data ingestion (called by ConfigPane) ----
 
     def update_config(self, chat_cfg: dict) -> None:
-        """Set all three input fields from the daemon config snapshot.
-
-        Skips the update if the user has made a change within the last
-        STALE_THRESHOLD seconds, preventing the periodic dashboard refresh
-        from overwriting in-flight user edits with stale snapshot data.
-        """
+        """Set all three input fields from the config snapshot."""
         if time.monotonic() - self._last_user_change < self.STALE_THRESHOLD:
             return
         self._temperature = float(chat_cfg.get("temperature") or _CHAT_DEFAULTS["temperature"])
@@ -282,15 +276,6 @@ class ChatPanel(Vertical):
         self._on_input_changed(event)
 
     def _on_input_changed(self, _event: Input.Changed) -> None:
-        """Validate current values and apply on user change/submit.
-
-        Only sets the stale guard when a *real* change is detected (input
-        differs from instance state). Programmatic calls from ``_sync_inputs``
-        (triggered by ``update_config``) always set inputs to match instance
-        values, so the ``if`` block is never entered and ``_last_user_change``
-        stays untouched — allowing the next periodic refresh to apply the
-        daemon snapshot.
-        """
         temp = self._clamp(self._read_temperature(), 0.0, 2.0)
         tokens = int(self._clamp(float(self._read_max_tokens()), 1.0, 32768.0))
         turns = int(self._clamp(float(self._read_context_turns()), 1.0, 100.0))
@@ -316,18 +301,15 @@ class ChatPanel(Vertical):
                 "context_window_turns": self._context_turns,
             }
         }
-        resp = await asyncio.to_thread(
-            _daemon_post, "apply_config_patch",
-            {"patch": patch},
-        )
-        if not resp.get("ok"):
+        try:
+            result = await asyncio.to_thread(engine.apply_config_patch, patch)
+            self.app.notify(f"Chat setting updated: {result}", severity="information")
+        except Exception as exc:
             self._temperature = old_temp
             self._max_tokens = old_tokens
             self._context_turns = old_turns
             self._sync_inputs()
             self.app.notify(
-                f"Failed to update chat config: {resp.get('error', 'unknown')}",
+                f"Failed to update chat config: {exc}",
                 severity="error", timeout=5,
             )
-        else:
-            self.app.notify("Chat setting updated", severity="information")

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import signal
 import socket
 import time
@@ -19,7 +20,7 @@ import config
 from packaging.version import InvalidVersion, Version
 from subprocess_util import popen_flm, run_captured, run_flm
 
-log = logging.getLogger("flowkey.flmserver")
+log = logging.getLogger("ffchat.flmserver")
 
 # FastFlowLM upstream release feed.
 FLM_RELEASES_API = "https://api.github.com/repos/FastFlowLM/FastFlowLM/releases/latest"
@@ -245,8 +246,8 @@ def start_flm_server(
     ]
     args.extend(settings.extra_args)
 
-    stdout_target = None
-    stderr_target = None
+    stdout_target = subprocess.DEVNULL
+    stderr_target = subprocess.DEVNULL
     log_handle = None
     if settings.log_to_file:
         log_path = settings.logs_dir / settings.log_file

@@ -1,14 +1,13 @@
-"""Flowkey Textual TUI — main application.
+"""ffchat Textual TUI — main application.
 
-Tabbed interface with Chat (primary) and Dashboard panels.
-Connects to the daemon at 127.0.0.1:52650 for data and actions.
+Tabbed interface with Chat (primary) and Config panels.
 
 Usage:
-    flowkey tui [--parent-pid N]
+    ffchat [--parent-pid N] [--ingest-file PATH] [--log-level LEVEL]
 
 Keyboard:
     F1          Chat tab
-    F2          Dashboard tab
+    F2          Config tab
     Ctrl+P      Command palette (includes theme browser)
     Ctrl+C      Quit (press twice within 3s)
 """
@@ -35,7 +34,7 @@ from textual.widgets import Input, TabbedContent, TabPane, TextArea
 from tui.chat import ChatWidget
 from tui.dashboard import DashboardWidget
 
-log = logging.getLogger("flowkey.tui.app")
+log = logging.getLogger("ffchat.tui.app")
 
 # ---------------------------------------------------------------------------
 # CSS
@@ -68,15 +67,6 @@ TabPane:focus {
     border: none;
 }
 
-/* Dashboard-specific fixes for tab panel scrolling */
-#dashboard-tabs {
-    height: 100%;
-}
-
-#dashboard-tabs > TabPane {
-    height: 100%;
-}
-
 /* Reposition notifications from bottom-right (default) to top-right. */
 #textual-toastrack {
     dock: top;
@@ -96,12 +86,12 @@ Toast {
 # ---------------------------------------------------------------------------
 
 
-class FlowkeyScreen(Screen):
-    """Main screen with tabbed chat + dashboard."""
+class FfchatScreen(Screen):
+    """Main screen with tabbed chat + config."""
 
     BINDINGS = [
         Binding("f1", "switch_tab('chat')", "Chat", show=True),
-        Binding("f2", "switch_tab('dashboard')", "Dashboard", show=True),
+        Binding("f2", "switch_tab('config')", "Config", show=True),
         Binding("ctrl+c", "quit", "Quit (2×)", show=True, priority=True),
     ]
 
@@ -109,7 +99,7 @@ class FlowkeyScreen(Screen):
         with TabbedContent(initial="chat"):
             with TabPane("💬 Chat", id="chat"):
                 yield ChatWidget()
-            with TabPane("📊 Dashboard", id="dashboard"):
+            with TabPane("📋 Config", id="config"):
                 yield DashboardWidget()
 
     def action_switch_tab(self, tab: str) -> None:
@@ -136,12 +126,12 @@ class FlowkeyScreen(Screen):
 # ---------------------------------------------------------------------------
 
 
-class FlowkeyTUI(App):
-    """Flowkey Textual TUI application."""
+class FfchatTUI(App):
+    """ffchat Textual TUI application."""
 
-    TITLE = "Flowkey TUI"
+    TITLE = "ffchat"
     CSS = APP_CSS
-    SCREENS = {"main": FlowkeyScreen}
+    SCREENS = {"main": FfchatScreen}
     BINDINGS: list[Binding] = []
     # Seconds the user has to press Ctrl+C a second time to confirm quit.
     QUIT_PRESS_WINDOW = 3.0
@@ -249,7 +239,7 @@ class FlowkeyTUI(App):
 
 
 def main(argv: list[str] | None = None) -> int:
-    """TUI entry point for the Flowkey dispatcher."""
+    """TUI entry point for ffchat."""
     parser = argparse.ArgumentParser(description="Flowkey Textual TUI")
     parser.add_argument(
         "--parent-pid", type=int, default=0,
@@ -271,14 +261,8 @@ def main(argv: list[str] | None = None) -> int:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Suppress expected daemon-connection warnings — dashboard polls
-    # periodically and "connection refused" is normal when daemon is off.
-    logging.getLogger("flowkey.http").setLevel(logging.ERROR)
-
-    # Prevent flowkey.* log messages from printing to stderr (overlays the
-    # TUI). The daemon process handles its own logging; the TUI should not
-    # echo those messages to the terminal where the TUI runs.
-    logging.getLogger("flowkey").propagate = False
+    # Prevent ffchat.* log messages from printing to stderr (overlays the TUI).
+    logging.getLogger("ffchat").propagate = False
 
     # Read ingest payload from file if provided
     ingest_text = ""
@@ -301,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # SIGINT is routed through Textual's Ctrl+C screen binding (two-press
     # quit). The KeyboardInterrupt raised by any raw SIGINT is caught below.
-    app = FlowkeyTUI(parent_pid=args.parent_pid, ingest_text=ingest_text)
+    app = FfchatTUI(parent_pid=args.parent_pid, ingest_text=ingest_text)
 
     def _signal_handler(signum, frame):
         app._on_signal(signum, frame)

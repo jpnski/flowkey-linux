@@ -25,7 +25,7 @@ from pathlib import Path
 
 from subprocess_util import run_flm
 
-log = logging.getLogger("flowkey.benchmark")
+log = logging.getLogger("ffchat.benchmark")
 
 # Job state is a single shared slot — only one benchmark may run at a time.
 _lock = threading.Lock()
@@ -189,7 +189,7 @@ def start_benchmark(
                 except Exception as exc:
                     log.warning("start_serve after benchmark failed: %s", exc)
 
-    _thread = threading.Thread(target=worker, name="flowkey-benchmark", daemon=True)
+    _thread = threading.Thread(target=worker, name="ffchat-benchmark", daemon=True)
     _thread.start()
     return {"ok": True, "state": "running", "model": model}
 

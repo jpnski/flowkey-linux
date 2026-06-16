@@ -9,21 +9,18 @@ import time
 from functools import partial
 from typing import Any
 
+import paths
+import pull
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.events import Click
 from textual.reactive import reactive
 from textual.widgets import Select, Static
 
-from tui.dashboard import DashboardWidget
-from tui.dashboard._daemon import (
-    _DAEMON_TIMEOUT_MODEL_CHANGE,
-    _DAEMON_TIMEOUT_PULL_CANCEL,
-    _DAEMON_TIMEOUT_PULL_START,
-    _daemon_post,
-)
+import engine
+import flm_server
 
-log = logging.getLogger("flowkey.tui.dashboard")
+log = logging.getLogger("ffchat.tui.dashboard")
 
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _DEFAULT_TIMEOUT = 15.0
@@ -45,6 +42,8 @@ _STARRED_MODELS: dict[str, str] = {
     "Audio (ASR)":       "whisper-v3:turbo",
 }
 _STARRED_TAGS: frozenset[str] = frozenset(_STARRED_MODELS.values())
+
+_FLM_UPDATE_CACHE = paths.DATA_DIR / "flm_update_cache.json"
 
 
 class FlmModelPanel(Vertical):
@@ -137,26 +136,15 @@ class FlmModelPanel(Vertical):
         self._spinner_index: int = 0
         self._pull_spinner_index: int = 0
         self._pull_in_flight: bool = False
-        self._pull_completed_key: str = ""  # guards against re-notifying on repeated polls of the same terminal state
-        self._pull_last_notify_at: float = 0.0  # monotonic cooldown: prevent toast re-fire within 6s
+        self._pull_completed_key: str = ""
+        self._pull_last_notify_at: float = 0.0
         self._daemon_reachable: bool = True
         self._last_model_change_at: float = 0.0
-        # Whether the FLM server is reachable and the model is confirmed loaded.
         self._model_loaded: bool = False
-        # Tracks the last time _refresh_select (or the revert path in
-        # _apply_model_change) programmatically mutated the Select widget.
-        # Any Select.Changed firing within 1 s of this timestamp is treated
-        # as a spurious side-effect of set_options() and suppressed.
         self._last_select_refresh_at: float = 0.0
-        # Set of model names last passed to Select.set_options. If unchanged
-        # on the next _refresh_select call, set_options is skipped entirely,
-        # avoiding the spurious first-option default Select.Changed event.
         self._last_select_options: list[str] = []
-        # Same suppression mechanism for the download Select.
         self._last_dl_select_refresh_at: float = 0.0
-        # Cached option names — skip set_options when unchanged.
         self._last_dl_select_options: list[str] = []
-        # Version / update-check state.
         self._current_version: str = ""
         self._latest_version: str = ""
         self._has_update: bool = False
@@ -211,25 +199,15 @@ class FlmModelPanel(Vertical):
     def update_models(self, installed: list[str], not_installed: list[str],
                       active: str, model_loaded: bool = False,
                       *, daemon_reachable: bool = True) -> None:
-        """Refresh installed/not-installed lists and active model.
-
-        Idempotent: only re-populates the Select widgets when something
-        actually changed. Preserves user focus on the Select where possible.
-        """
         self._daemon_reachable = daemon_reachable
         self._installed_models = list(installed)
         self._not_installed_models = list(not_installed)
         self._model_loaded = model_loaded
         self._active_model = active if model_loaded else ""
-
         self._refresh_select()
-        # Always refresh the download select when the not-installed list
-        # changes (pull completed, daemon refresh, etc.).  _refresh_download_select
-        # is idempotent and skips set_options when nothing changed.
         self._refresh_download_select()
 
     def mark_daemon_down(self) -> None:
-        """Render the panel into its unreachable state."""
         self._daemon_reachable = False
         self._active_model = ""
         self._installed_models = []
@@ -256,23 +234,16 @@ class FlmModelPanel(Vertical):
             self._last_select_options = []
             return
 
-        # Always include the persistent "(none)" option at position 0, followed
-        # by installed model names.  Users can select "(none)" to explicitly
-        # unload the active model from memory.
         options = [("(none)", "")] + [
             (name, name) for name in self._installed_models
         ]
 
-        # Rebuild options only when the installed list changes.  Calling
-        # set_options unnecessarily triggers a spurious Select.Changed
-        # (suppressed below by _last_select_refresh_at).
         if self._installed_models != self._last_select_options:
             self._last_select_refresh_at = time.monotonic()
             select.set_options(options)
             self._last_select_options = list(self._installed_models)
 
         if not self._model_loaded:
-            # No model loaded — select "(none)".
             select.value = ""
         elif self._active_model and self._active_model in self._installed_models:
             select.value = self._active_model
@@ -313,16 +284,16 @@ class FlmModelPanel(Vertical):
 
     @staticmethod
     def _format_pull_status(model: str, percent: float, message: str) -> str:
-        """Shorten pull status: drop the verbose daemon prefix, keep only size info."""
         size_match = re.search(r'\([^)]+/\s*[^)]+\)', message)
         size_info = f" {size_match.group(0)}" if size_match else ""
         return f" Pulling [bold]{model}[/] | {percent:.1f}%{size_info}"
 
     def _refresh_pull_status(self) -> None:
-        resp = _daemon_post("pull_status")
-        if not resp.get("ok"):
+        try:
+            result = pull.status()
+        except Exception as exc:
+            log.warning("pull.status() failed: %s", exc)
             return
-        result = resp.get("result") or {}
         state = str(result.get("state") or "idle")
         model = str(result.get("model") or "")
         percent = float(result.get("percent") or 0.0)
@@ -334,7 +305,6 @@ class FlmModelPanel(Vertical):
         text = self.query_one("#flm-pull-text", Static)
 
         if state == "running":
-            # Reset completion guard so the next terminal state fires once.
             self._pull_completed_key = ""
             pull_row.add_class("active")
             spinner.update(f"[yellow]{_SPINNER[self._pull_spinner_index % len(_SPINNER)]}[/]")
@@ -402,8 +372,8 @@ class FlmModelPanel(Vertical):
             log.warning("could not update pull spinner: %s", exc)
 
     def _refresh_dashboard(self) -> None:
-        """Trigger a full dashboard refresh so model lists are re-fetched."""
         try:
+            from tui.dashboard import DashboardWidget
             self.app.query_one(DashboardWidget).refresh_now()
         except Exception as exc:
             log.warning("could not refresh dashboard: %s", exc)
@@ -415,7 +385,6 @@ class FlmModelPanel(Vertical):
         if event.select.id == "flm-active-model-select":
             new_value = str(event.value or "")
 
-            # Suppress spurious Select.Changed triggered by set_options().
             if time.monotonic() - self._last_select_refresh_at < 1.0:
                 return
 
@@ -424,7 +393,6 @@ class FlmModelPanel(Vertical):
 
             select = event.select
 
-            # Chat-stream guard (applies to both unloading and switching).
             is_streaming = False
             try:
                 from tui.chat import ChatWidget
@@ -471,7 +439,6 @@ class FlmModelPanel(Vertical):
 
         # ---- Download-model Select ----
         if event.select.id == "flm-download-select":
-            # Suppress spurious Select.Changed triggered by set_options().
             if time.monotonic() - self._last_dl_select_refresh_at < 1.0:
                 return
 
@@ -502,26 +469,18 @@ class FlmModelPanel(Vertical):
         line.update(f"[yellow]{_SPINNER[0]} {self.restart_label}[/]")
 
         try:
-            resp = await asyncio.to_thread(
-                _daemon_post, "apply_config_patch", {"patch": {"flm_server": {"model": new_value}}},
-                timeout=_DAEMON_TIMEOUT_MODEL_CHANGE,
+            result = await asyncio.to_thread(
+                engine.apply_config_patch, {"flm_server": {"model": new_value}},
             )
-            if not resp.get("ok"):
-                raise RuntimeError(str(resp.get("error") or "unknown error"))
             self.app.notify(f"Active model: {new_value}", severity="information")
-            # Push the new model name to the chat footer FIRST — this is a
-            # simple in-process assignment that returns instantly.  Must run
-            # before refresh_now() which blocks the event loop for seconds
-            # making 11 synchronous HTTP requests while FLM restarts.
             try:
                 from tui.chat import ChatWidget
                 chat = self.app.query_one(ChatWidget)
                 chat.set_model(new_value)
             except Exception as exc:
                 log.warning("could not set chat model: %s", exc)
-            # Refresh the parent's view of the active model and the installed
-            # list.  This makes multiple HTTP requests and may take seconds.
             try:
+                from tui.dashboard import DashboardWidget
                 self.app.query_one(DashboardWidget).refresh_now()
             except Exception as exc:
                 log.warning("could not refresh dashboard after model change: %s", exc)
@@ -529,7 +488,6 @@ class FlmModelPanel(Vertical):
             self.app.notify(
                 f"Model change failed: {exc}", severity="error", timeout=8
             )
-            # Revert the Select visually.
             try:
                 select = self.query_one("#flm-active-model-select", Select)
                 self._last_select_refresh_at = time.monotonic()
@@ -548,34 +506,14 @@ class FlmModelPanel(Vertical):
             self._set_select_enabled(True)
 
     async def _unload_model(self) -> None:
-        """Stop the FLM server and reset UI state.
-
-        Called when the user explicitly selects (none) from the Select
-        dropdown while a model is loaded.
-        """
         try:
-            resp = await asyncio.to_thread(
-                _daemon_post, "stop", {"args": {}}, timeout=5.0,
-            )
-            if resp.get("ok") and resp.get("result") == "stopped":
-                self.app.notify(
-                    "Model unloading from memory...",
-                    severity="information", timeout=4,
-                )
-            elif resp.get("ok") and resp.get("result") == "not_running":
-                self.app.notify(
-                    "No model was loaded",
-                    severity="information", timeout=4,
-                )
+            stopped = await asyncio.to_thread(engine.stop_flm_server, True)
+            if stopped:
+                self.app.notify("Model unloading from memory...", severity="information", timeout=4)
             else:
-                self.app.notify(
-                    f"Failed to unload: {resp.get('error', 'unknown')}",
-                    severity="error", timeout=6,
-                )
+                self.app.notify("No model was loaded", severity="information", timeout=4)
         except Exception as exc:
-            self.app.notify(
-                f"Failed to unload: {exc}", severity="error", timeout=6,
-            )
+            self.app.notify(f"Failed to unload: {exc}", severity="error", timeout=6)
             return
 
         self._model_loaded = False
@@ -586,62 +524,40 @@ class FlmModelPanel(Vertical):
             chat.set_model("")
         except Exception as exc:
             log.warning("could not clear chat model: %s", exc)
-        # Suppress the Select.Changed that _refresh_select triggers when it
-        # sets select.value = "" — the user *just* picked (none) intentionally.
         self._last_select_refresh_at = time.monotonic()
         self._refresh_select()
 
     async def _start_pull(self, model: str) -> None:
         self._set_select_enabled(False)
         try:
-            resp = await asyncio.to_thread(
-                _daemon_post, "pull_start", {"model": model},
-                timeout=_DAEMON_TIMEOUT_PULL_START,
-            )
-            if not resp.get("ok"):
-                raise RuntimeError(str(resp.get("error") or "unknown error"))
+            result = await asyncio.to_thread(pull.start_pull, model)
+            if isinstance(result, dict) and not result.get("ok", True):
+                raise RuntimeError(str(result.get("error") or "unknown error"))
             self.app.notify(f"Started pulling {model}", severity="information")
         except Exception as exc:
-            self.app.notify(
-                f"Pull start failed: {exc}", severity="error", timeout=8
-            )
+            self.app.notify(f"Pull start failed: {exc}", severity="error", timeout=8)
         finally:
             self._set_select_enabled(True)
 
     async def _cancel_pull(self) -> None:
         try:
-            resp = await asyncio.to_thread(
-                _daemon_post, "pull_cancel", timeout=_DAEMON_TIMEOUT_PULL_CANCEL,
-            )
-            if not resp.get("ok"):
-                raise RuntimeError(str(resp.get("error") or "unknown error"))
-            # Immediate visual feedback; the 1s poller will fire the toast
-            # once when state transitions to "cancelled" (with guard).
+            result = await asyncio.to_thread(pull.cancel_pull)
+            if isinstance(result, dict) and not result.get("ok", True):
+                raise RuntimeError(str(result.get("error") or "unknown error"))
             try:
                 text = self.query_one("#flm-pull-text", Static)
                 text.update("Cancelling…")
             except Exception as exc:
                 log.warning("could not update pull text: %s", exc)
         except Exception as exc:
-            self.app.notify(
-                f"Cancel failed: {exc}", severity="error", timeout=6
-            )
+            self.app.notify(f"Cancel failed: {exc}", severity="error", timeout=6)
 
     # ---- Version info ----
 
     def update_version_info(self, data: dict) -> None:
-        """Update version display and update status from a flm_update_check result.
-
-        ``data`` is the ``result`` dict returned by the daemon action::
-
-            {"current": "0.9.43", "latest": "0.9.44",
-             "has_update": True, "cached": True, "stale": False, …}
-        """
         self._current_version = str(data.get("current") or "").strip()
         self._latest_version = str(data.get("latest") or "").strip()
         self._has_update = bool(data.get("has_update", False))
-
-        # -- version box --
         try:
             box = self.query_one("#flm-version-box", Static)
             if self._current_version:
@@ -654,13 +570,11 @@ class FlmModelPanel(Vertical):
     # ---- Status auto-hide ----
 
     def _schedule_status_hide(self) -> None:
-        """Cancel any pending hide timer and schedule a new one in 5s."""
         if self._status_timer is not None:
             self._status_timer.cancel()
         self._status_timer = self.set_timer(5.0, self._hide_update_status)
 
     def _hide_update_status(self) -> None:
-        """Remove the -visible class from the status line (timer callback)."""
         self._status_timer = None
         try:
             self.query_one("#flm-update-status", Static).remove_class("-visible")
@@ -670,7 +584,6 @@ class FlmModelPanel(Vertical):
     # ---- Workers ----
 
     async def _do_update_check(self) -> None:
-        """Force a live FLM update check against GitHub releases."""
         icon: Static | None = None
         try:
             icon = self.query_one("#flm-check-update-btn", Static)
@@ -679,39 +592,29 @@ class FlmModelPanel(Vertical):
             log.warning("could not update check-update icon: %s", exc)
 
         try:
-            resp = await asyncio.to_thread(
-                _daemon_post, "flm_update_check", {"force": True},
-                timeout=_DEFAULT_TIMEOUT,
+            data = await asyncio.to_thread(
+                flm_server.check_flm_update,
+                _FLM_UPDATE_CACHE,
+                force=True,
             )
-            if resp.get("ok"):
-                self.update_version_info(resp.get("result") or {})
-                # Show status once (auto-hides after 5s).
-                try:
-                    data = resp.get("result") or {}
-                    latest = str(data.get("latest") or "").strip()
-                    has_update = bool(data.get("has_update", False))
-                    status = self.query_one("#flm-update-status", Static)
-                    if latest and has_update:
-                        status.update(
-                            f"[yellow]FLM {latest} available, "
-                            f"rebuild for updated runtime.[/]"
-                        )
-                        status.add_class("-visible")
-                        self._schedule_status_hide()
-                    elif latest and not has_update:
-                        status.update("[yellow]FLM up to date ✓[/]")
-                        status.add_class("-visible")
-                        self._schedule_status_hide()
-                except Exception as exc:
-                    log.warning("update check status update failed: %s", exc)
-            else:
-                try:
-                    status = self.query_one("#flm-update-status", Static)
-                    status.update(f"[red]Update check failed: {resp.get('error', 'unknown')}[/]")
+            self.update_version_info(data)
+            try:
+                latest = str(data.get("latest") or "").strip()
+                has_update = bool(data.get("has_update", False))
+                status = self.query_one("#flm-update-status", Static)
+                if latest and has_update:
+                    status.update(
+                        f"[yellow]FLM {latest} available, "
+                        f"rebuild for updated runtime.[/]"
+                    )
                     status.add_class("-visible")
                     self._schedule_status_hide()
-                except Exception as exc:
-                    log.warning("error status display failed: %s", exc)
+                elif latest and not has_update:
+                    status.update("[yellow]FLM up to date ✓[/]")
+                    status.add_class("-visible")
+                    self._schedule_status_hide()
+            except Exception as exc:
+                log.warning("update check status update failed: %s", exc)
         except Exception as exc:
             try:
                 status = self.query_one("#flm-update-status", Static)

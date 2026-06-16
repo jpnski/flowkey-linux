@@ -22,7 +22,7 @@ from pathlib import Path
 
 from subprocess_util import popen_flm, run_flm
 
-log = logging.getLogger("flowkey.pull")
+log = logging.getLogger("ffchat.pull")
 
 _lock = threading.Lock()
 _job: dict = {
@@ -243,7 +243,7 @@ def start_pull(model: str, *,
             _update(state="error", error=f"flm pull exited with code {rc}", finished_at=time.time())
         _schedule_reset()
 
-    _thread = threading.Thread(target=worker, name="flowkey-pull", daemon=True)
+    _thread = threading.Thread(target=worker, name="ffchat-pull", daemon=True)
     _thread.start()
     return {"ok": True, "state": "running", "model": model}
 

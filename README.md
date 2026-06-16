@@ -1,19 +1,16 @@
-# Flowkey
+# ffchat
 
-Flowkey is a Linux desktop assistant for [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM): one `flowkey` command gives you global hotkeys, clipboard-driven text transforms, a streaming TUI chat, a multi-pane dashboard, notes, and tray controls on top of the local FLM runtime.
+ffchat is a Linux TUI chat frontend for [FastFlowLM](https://github.com/FastFlowLM/FastFlowLM): one `ffchat` command gives you a streaming chat interface with configurable slash commands, direct FLM server lifecycle management, and a simplified configuration dashboard.
 
 Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow).
 
 ## Features
 
-- **Global hotkeys** - Two kinds of hotkeys are available: text transforms rewrite the current selection in place, while interaction hotkeys open chat or save the current selection into notes.
-- **Clipboard watcher** - Optional background hints for copied URLs, code, and stack traces.
-- **Streaming TUI chat** - Chat with the local model from a terminal UI with slash commands and conversation history.
-- **Dashboard** - Inspect runtime status, telemetry, benchmarks, notes, hotkeys, model settings, and input-processing controls.
-- **System tray** - Start or stop the daemon, toggle performance mode, and open the TUI from the tray.
-- **Standalone text processing** - Use `flowkey process` directly for one-off transforms without the full UI.
-- **Notes capture** - Save selections into your notes vault with a hotkey.
-- **Local-first runtime control** - Manage the FLM server, model selection, and startup behavior from Flowkey itself.
+- **Streaming TUI chat** - Chat with the local model from a terminal UI with configurable slash commands (grammar, summarize, explain, prompt).
+- **Direct FLM server management** - TUI manages FLM server lifecycle directly without daemon processes or background services.
+- **Config dashboard** - Inspect runtime status, model settings, and configuration options in a single tab.
+- **Local-first** - Manage the FLM server, model selection, and startup behavior from ffchat itself.
+- **Simple installation** - Install via `pip install .` with no system packages or sudo required.
 
 ## Requirements
 
@@ -57,24 +54,6 @@ Development installs also use `build`, `pyinstaller`, `pytest`, and `ruff` from 
 
 ## Installation
 
-### Official release install
-
-Use the installer script for the deployed binary release:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jpnski/flowkey-linux/main/install.sh | bash
-```
-
-What it does:
-
-- downloads the matching Linux release tarball
-- installs the payload under `~/.local/opt/flowkey/current`
-- links `flowkey` into `~/.local/bin`
-- installs the desktop entry, udev rule, and other system setup pieces when available
-- runs `flowkey install` to seed config and pull the default model if needed
-
-If you already downloaded the script locally, you can run it directly with `bash install.sh`.
-
 ### Development install
 
 Clone the source and run the components from the checkout:
@@ -87,25 +66,31 @@ source .venv/bin/activate
 pip install -e .[dev]
 ```
 
-Run the individual pieces directly from the repo:
+Run the TUI directly from the repo:
 
 ```bash
-python scripts/flowkey.py daemon
-python scripts/flowkey.py listen
-python scripts/flowkey.py tui
-python scripts/flowkey.py install
-python scripts/flowkey.py process --mode grammar --input-file /dev/stdin
+python scripts/ffchat.py
 ```
 
-If the editable install is active, the single `flowkey` command is also available:
+If the editable install is active, the single `ffchat` command is also available:
 
 ```bash
-flowkey daemon
-flowkey listen
-flowkey tui
-flowkey install
-flowkey process --mode grammar --input-file /dev/stdin
+ffchat
 ```
+
+## Usage
+
+The TUI provides:
+
+- **Chat interface** - Send messages to the local FLM model with streaming responses
+- **Config dashboard** - Configure model selection, FLM server settings, and other options
+- **Slash commands** - Built-in commands like `/grammar`, `/summarize`, `/explain`, and `/prompt` for common text operations
+
+Keyboard shortcuts:
+
+- **F1** - Switch to Chat tab
+- **F2** - Switch to Config tab
+- **Ctrl+C** - Quit (press twice within 3 seconds)
 
 ## Configuration
 
@@ -139,62 +124,35 @@ From the user perspective:
 ```mermaid
 flowchart LR
   U[User]
-  CLI[flowkey CLI]
+  CLI[ffchat CLI]
 
-  subgraph Flowkey[Flowkey components]
-    D[daemon]
-    L[listen]
-    T[tui]
-    R[tray]
-    P[process]
-    I[install]
-  end
+subgraph ffchat[ffchat components]
+  T[tui]
+end
 
-  FLM[FastFlowLM\nflm CLI + HTTP API]
+FLM[FastFlowLM\nflm CLI + HTTP API]
 
-  U --> CLI
-  CLI --> D
-  CLI --> L
-  CLI --> T
-  CLI --> R
-  CLI --> P
-  CLI --> I
-
-  T <--> D
-  L --> D
-  R <--> D
-  P <--> FLM
-  D <--> FLM
+U --> CLI
+CLI --> T
+T <--> FLM
 ```
 
 ## Project Structure
 
 ```text
 flowkey-linux/
-├── install.sh
-├── flowkey.spec
 ├── pyproject.toml
 ├── README.md
 ├── TODO.md
 ├── scripts/
-│   ├── flowkey.py
-│   ├── build_frozen.py
-│   ├── launcher.py
-│   ├── install.py
-│   ├── daemon.py
-│   ├── listener.py
-│   ├── tray.py
+│   ├── ffchat.py
 │   ├── engine.py
 │   ├── config.py
 │   ├── paths.py
 │   ├── flm_server.py
 │   ├── llm_client.py
-│   ├── notes.py
-│   ├── telemetry.py
 │   ├── pull.py
-│   ├── notify.py
-│   ├── subprocess_util.py
-│   ├── tools.py
+│   ├── benchmark.py
 │   └── tui/
 │       ├── app.py
 │       ├── chat.py
