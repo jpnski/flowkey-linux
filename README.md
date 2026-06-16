@@ -38,22 +38,10 @@ Development installs also use `build`, `pyinstaller`, `pytest`, and `ruff` from 
 
 ## Installation
 
-### Development install
-
-Clone the source and run the components from the checkout:
-
 ```bash
-git clone https://github.com/jpnski/ffchat-linux.git
-cd ffchat-linux
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-```
-
-Run the TUI directly from the repo:
-
-```bash
-python scripts/ffchat.py
+git clone https://github.com/jpnski/ffchat.git
+cd ffchat
+python3 -m pip install --user .
 ```
 
 ## Usage
