@@ -4,6 +4,8 @@ ffchat is just a Linux TUI chat frontend for [FastFlowLM](https://github.com/Fas
 
 Forked from [agr77one/Fastflow](https://github.com/agr77one/Fastflow).
 
+(Ported most of the app, didn't like the hotkeys in practice, stripped down to just the LLM chat)
+
 ## Features
 
 - **Streaming TUI chat** - Chat with the local model from a terminal UI with configurable slash commands (grammar, summarize, explain, prompt).
